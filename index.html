@@ -350,8 +350,6 @@ const gl = canvas.getContext('webgl', {antialias:true, alpha:false});
 if(!gl){alert('WebGL не поддерживается');throw new Error('no webgl')}
 
 const IS_MOBILE=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-const TARGET_RENDER_WIDTH=2560;
-const TARGET_RENDER_HEIGHT=1440;
 const PERF={
   renderScale:IS_MOBILE?0.72:1,
   envMul:IS_MOBILE?0.55:1,
@@ -363,11 +361,29 @@ const PERF={
 };
 
 function resize(){
-  // Фиксированное внутреннее разрешение рендера
-  canvas.width = TARGET_RENDER_WIDTH;
-  canvas.height = TARGET_RENDER_HEIGHT;
-  canvas.style.width=window.innerWidth+'px';
-  canvas.style.height=window.innerHeight+'px';
+  // Внутреннее разрешение должно совпадать с фактическим аспектом экрана,
+  // иначе на телефоне 3D-модель визуально «сплющивается/растягивается».
+  const cssW=Math.max(1,Math.floor((window.visualViewport&&window.visualViewport.width)||window.innerWidth||1));
+  const cssH=Math.max(1,Math.floor((window.visualViewport&&window.visualViewport.height)||window.innerHeight||1));
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  const scale=PERF.renderScale||1;
+
+  let rw=cssW*dpr*scale;
+  let rh=cssH*dpr*scale;
+
+  // Ограничиваем только по длинной стороне, чтобы сохранить пропорции.
+  const maxLong=IS_MOBILE?1700:2560;
+  const long=Math.max(rw,rh);
+  if(long>maxLong){
+    const k=maxLong/long;
+    rw*=k;
+    rh*=k;
+  }
+
+  canvas.width=Math.max(1,Math.round(rw));
+  canvas.height=Math.max(1,Math.round(rh));
+  canvas.style.width=cssW+'px';
+  canvas.style.height=cssH+'px';
   gl.viewport(0,0,canvas.width,canvas.height);
 }
 window.addEventListener('resize',resize); resize();
