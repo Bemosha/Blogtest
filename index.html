@@ -4190,6 +4190,24 @@ function copyTextSafe(text){
   }catch(e){}
 }
 
+function openTelegramLinksSmart(primary,fallbacks){
+  const links=[primary].concat(Array.isArray(fallbacks)?fallbacks:[]).filter(Boolean);
+  if(!links.length)return;
+
+  // На телефонах сначала пытаемся открыть tg:// (чаще корректно подставляет текст),
+  // затем даём web-fallback, если приложение не перехватило ссылку.
+  try{ window.location.href=links[0]; }catch(e){}
+
+  let idx=1;
+  function next(){
+    if(idx>=links.length)return;
+    const link=links[idx++];
+    try{ window.open(link,'_blank'); }catch(e){}
+    setTimeout(next,900);
+  }
+  setTimeout(next,850);
+}
+
 function openTelegramDialog(rawText){
   const text=rawText||'';
   const msg=encodeURIComponent(text);
@@ -4199,10 +4217,10 @@ function openTelegramDialog(rawText){
 
   // 1) СРАЗУ в твой профиль по username
   if(username){
-    const w=window.open('https://t.me/'+username+'?text='+msg,'_blank');
-    if(!w){
-      try{window.location.href='tg://resolve?domain='+username+'&text='+msg;}catch(e){}
-    }
+    const tg='tg://resolve?domain='+username+'&text='+msg;
+    const web='https://t.me/'+username+'?text='+msg;
+    const share='https://t.me/share/url?url='+encodeURIComponent('https://t.me/'+username)+'&text='+msg;
+    openTelegramLinksSmart(tg,[web,share]);
     copyTextSafe(text);
     return;
   }
@@ -4211,16 +4229,15 @@ function openTelegramDialog(rawText){
   if(profileUrl){
     const sep=profileUrl.includes('?')?'&':'?';
     const url=profileUrl+sep+'text='+msg;
-    const w=window.open(url,'_blank');
-    if(!w){
-      try{window.location.href=url;}catch(e){}
-    }
+    openTelegramLinksSmart(url,[]);
     copyTextSafe(text);
     return;
   }
 
   // 3) Резерв: попытка открыть по телефону (если нет username)
-  try{window.location.href='tg://resolve?phone='+phone+'&text='+msg;}catch(e){}
+  const tgPhone='tg://resolve?phone='+phone+'&text='+msg;
+  const webShare='https://t.me/share/url?url='+encodeURIComponent('https://t.me')+'&text='+msg;
+  openTelegramLinksSmart(tgPhone,[webShare]);
 
   // Без username/profileUrl браузер может открыть telegram.org.
   // Поэтому для точного перехода в твой профиль обязательно заполни tgUsername.
