@@ -361,10 +361,13 @@ const PERF={
 };
 
 function resize(){
-  // Внутреннее разрешение должно совпадать с фактическим аспектом экрана,
-  // иначе на телефоне 3D-модель визуально «сплющивается/растягивается».
-  const cssW=Math.max(1,Math.floor((window.visualViewport&&window.visualViewport.width)||window.innerWidth||1));
-  const cssH=Math.max(1,Math.floor((window.visualViewport&&window.visualViewport.height)||window.innerHeight||1));
+  // Берём РЕАЛЬНЫЙ размер области, в которую рисуется canvas.
+  // Это надёжнее, чем innerWidth/innerHeight на мобильных браузерах.
+  canvas.style.width='100vw';
+  canvas.style.height='100dvh';
+  const rect=canvas.getBoundingClientRect();
+  const cssW=Math.max(1,Math.floor(rect.width||window.innerWidth||1));
+  const cssH=Math.max(1,Math.floor(rect.height||window.innerHeight||1));
   const dpr=Math.min(2,window.devicePixelRatio||1);
   const scale=PERF.renderScale||1;
 
@@ -382,11 +385,18 @@ function resize(){
 
   canvas.width=Math.max(1,Math.round(rw));
   canvas.height=Math.max(1,Math.round(rh));
-  canvas.style.width=cssW+'px';
-  canvas.style.height=cssH+'px';
+  // Оставляем только viewport-единицы, чтобы не конфликтовать с 100dvh/панелями браузера.
+  canvas.style.width='100vw';
+  canvas.style.height='100dvh';
   gl.viewport(0,0,canvas.width,canvas.height);
 }
-window.addEventListener('resize',resize); resize();
+window.addEventListener('resize',resize);
+window.addEventListener('orientationchange',()=>setTimeout(resize,80));
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize',resize);
+  window.visualViewport.addEventListener('scroll',resize);
+}
+resize();
 
 // ===== Fullscreen toggle =====
 function toggleFS(){
