@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Frendy Web</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 16px; }
+    .card { background: #1e293b; border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+    button { border: 0; border-radius: 10px; padding: 12px 14px; font-weight: 700; }
+    .start { background: #22c55e; color: #052e16; }
+    .stop { background: #ef4444; color: #fff; }
+    input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #0b1221; color: #fff; }
+    small { color: #94a3b8; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>Frendy (браузер)</h2>
+
+    <div class="card">
+      <p><b>Статус:</b> <span id="status">Ожидание</span></p>
+      <p><b>Вы:</b> <span id="heard">—</span></p>
+      <p><b>Фрэнди:</b> <span id="answer">—</span></p>
+      <button id="startBtn" class="start">Запустить</button>
+      <button id="stopBtn" class="stop" disabled>Остановить</button>
+    </div>
+
+    <div class="card">
+      <p><b>Для точных ответов (необязательно):</b> вставь OpenAI API ключ</p>
+      <input id="apiKey" type="password" placeholder="sk-..." />
+      <small>Ключ хранится только в браузере на вашем устройстве (localStorage).</small>
+    </div>
+
+    <div class="card">
+      <small>
+        Скажи: <span class="mono">привет фрэнди</span> → Фрэнди ответит: <span class="mono">привет, что хотел?</span>,
+        потом задай вопрос.
+      </small>
+    </div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const heardEl = document.getElementById('heard');
+    const answerEl = document.getElementById('answer');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const apiKeyInput = document.getElementById('apiKey');
+
+    apiKeyInput.value = localStorage.getItem('frendy_openai_key') || '';
+    apiKeyInput.addEventListener('input', () => {
+      localStorage.setItem('frendy_openai_key', apiKeyInput.value.trim());
+    });
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      statusEl.textContent = 'На этом браузере нет поддержки распознавания речи';
+    }
+
+    const recognition = SpeechRecognition ? new SpeechRecognition() : null;
+    let running = false;
+    let waitingQuestion = false;
+
+    if (recognition) {
+      recognition.lang = 'ru-RU';
+      recognition.interimResults = false;
+      recognition.continuous = false;
+
+      recognition.onresult = async (event) => {
+        const text = event.results?.[0]?.[0]?.transcript?.trim() || '';
+        if (!text) {
+          if (running) recognition.start();
+          return;
+        }
+
+        heardEl.textContent = text;
+        const low = text.toLowerCase();
+
+        if (!waitingQuestion) {
+          if (low.includes('привет френди') || low.includes('привет фрэнди') || low.includes('хей френди')) {
+            waitingQuestion = true;
+            speak('Привет, что хотел?');
+            answerEl.textContent = 'Привет, что хотел?';
+          } else {
+            statusEl.textContent = 'Ожидаю фразу: «привет фрэнди»';
+          }
+          if (running) setTimeout(() => recognition.start(), 250);
+          return;
+        }
+
+        waitingQuestion = false;
+        statusEl.textContent = 'Думаю над ответом...';
+        const answer = await getAnswer(text);
+        answerEl.textContent = answer;
+        speak(answer);
+        statusEl.textContent = 'Снова скажи: «привет фрэнди»';
+        if (running) setTimeout(() => recognition.start(), 400);
+      };
+
+      recognition.onerror = () => {
+        if (running) setTimeout(() => recognition.start(), 500);
+      };
+
+      recognition.onend = () => {
+        if (running) {
+          try { recognition.start(); } catch (_) {}
+        }
+      };
+    }
+
+    function speak(text) {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'ru-RU';
+      u.rate = 1;
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+    }
+
+    async function getAnswer(question) {
+      const key = (apiKeyInput.value || '').trim();
+      if (!key) {
+        return 'Я работаю, но для максимально точных ответов добавь OpenAI API ключ в поле выше.';
+      }
+
+      try {
+        const r = await fetch('https://api.openai.com/v1/responses', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${key}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            input: [
+              { role: 'system', content: 'Ты помощник Фрэнди. Отвечай кратко и максимально правильно на русском языке.' },
+              { role: 'user', content: question }
+            ],
+            max_output_tokens: 220
+          })
+        });
+
+        const data = await r.json();
+        if (typeof data.output_text === 'string' && data.output_text.trim()) {
+          return data.output_text.trim();
+        }
+
+        const out = data.output || [];
+        const parts = [];
+        for (const item of out) {
+          if (item.type !== 'message') continue;
+          for (const c of (item.content || [])) {
+            if (c.type === 'output_text' && c.text) parts.push(c.text);
+          }
+        }
+        return parts.join(' ').trim() || 'Не смог дать точный ответ. Попробуй переформулировать вопрос.';
+      } catch (e) {
+        return 'Ошибка сети или API. Проверь интернет и правильность ключа.';
+      }
+    }
+
+    startBtn.onclick = () => {
+      if (!recognition) return;
+      running = true;
+      waitingQuestion = false;
+      statusEl.textContent = 'Слушаю... скажи: «привет фрэнди»';
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      recognition.start();
+    };
+
+    stopBtn.onclick = () => {
+      running = false;
+      waitingQuestion = false;
+      statusEl.textContent = 'Остановлено';
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      try { recognition && recognition.stop(); } catch (_) {}
+      speechSynthesis.cancel();
+    };
+  </script>
+</body>
+</html>

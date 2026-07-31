@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GTA FPS Mini</title>
+  <style>
+    html,body{margin:0;height:100%;overflow:hidden;background:#0e1116;color:#fff;font-family:Arial,sans-serif}
+    canvas{display:block;width:100vw;height:100vh;background:#1b232d}
+    #hud{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;font-weight:700;text-shadow:0 2px 4px rgba(0,0,0,.6);pointer-events:none}
+    #panel{position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.6)}
+    .card{max-width:560px;width:92vw;background:#111a24;border:1px solid #3d5b7c;border-radius:12px;padding:18px;text-align:center}
+    button{margin-top:12px;padding:10px 18px;border:0;border-radius:999px;background:#1e90ff;color:#fff;font-weight:700;cursor:pointer}
+  </style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+  <div>Деньги: $<span id="money">0</span></div>
+  <div>Розыск: <span id="wanted">☆</span></div>
+  <div>HP: <span id="hp">100</span></div>
+</div>
+<div id="panel"><div class="card" id="card">
+  <h1>GTA FPS — мини-версия</h1>
+  <p>Теперь от первого лица: едешь по городу, уходишь от полиции и выполняешь метки.</p>
+  <p>Управление: <b>A/D</b> руль, <b>W/S</b> скорость, <b>мышь</b> — осмотр, <b>ЛКМ</b> — огонь.</p>
+  <button id="startBtn">Начать</button>
+</div></div>
+
+<script>
+(() => {
+  const c = document.getElementById('game'), ctx = c.getContext('2d');
+  const moneyEl = document.getElementById('money'), wantedEl = document.getElementById('wanted'), hpEl = document.getElementById('hp');
+  const panel = document.getElementById('panel'), card = document.getElementById('card'), startBtn = document.getElementById('startBtn');
+  let W=0,H=0; function rs(){W=c.width=innerWidth;H=c.height=innerHeight;} rs(); addEventListener('resize',rs);
+
+  const keys={};
+  addEventListener('keydown',e=>keys[e.code]=true);
+  addEventListener('keyup',e=>keys[e.code]=false);
+
+  const r=(a,b)=>a+Math.random()*(b-a);
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+  // z - distance ahead, x - lateral offset from center lane
+  const g={run:false,money:0,hp:100,wanted:0,t:0,roadX:0,speed:1.2,mission:900,shots:[],targets:[],lines:[],lookX:0,lookY:0,fireDown:false,fireCd:0};
+
+  const mouse = { locked:false };
+  function requestLock(){ if(document.pointerLockElement!==c) c.requestPointerLock?.(); }
+  document.addEventListener('pointerlockchange',()=>{ mouse.locked = document.pointerLockElement===c; });
+  c.addEventListener('mousemove',(e)=>{
+    if(!mouse.locked || !g.run) return;
+    g.lookX = clamp(g.lookX + e.movementX * 0.003, -1.3, 1.3);
+    g.lookY = clamp(g.lookY + e.movementY * 0.003, -0.8, 0.8);
+  });
+  c.addEventListener('mousedown',()=>{
+    if(!g.run) return;
+    if(!mouse.locked){ requestLock(); return; }
+    g.fireDown = true;
+  });
+  addEventListener('mouseup',()=>{ g.fireDown = false; });
+
+  function sync(){
+    moneyEl.textContent = g.money;
+    hpEl.textContent = Math.max(0, Math.floor(g.hp));
+    wantedEl.textContent='★'.repeat(g.wanted)+'☆'.repeat(5-g.wanted);
+  }
+
+  function reset(){
+    g.run=true; g.money=0; g.hp=100; g.wanted=0; g.t=0; g.roadX=0; g.speed=1.2; g.mission=900;
+    g.shots=[]; g.targets=[]; g.lines=[]; g.lookX=0; g.lookY=0; g.fireDown=false; g.fireCd=0;
+    for(let i=0;i<36;i++) g.lines.push(i*7);
+    for(let i=0;i<12;i++) spawnTarget();
+    sync();
+  }
+
+  function spawnTarget(type='cop'){
+    g.targets.push({
+      x:r(-2.8,2.8),
+      z:r(40,220),
+      vx:r(-0.03,0.03),
+      type,
+      hp:type==='cop'?40:18
+    });
+  }
+
+  function shoot(){
+    const camX = g.roadX + g.lookX;
+    g.shots.push({x:camX,z:3,vx:g.lookX*0.06,vz:6.5,life:50});
+  }
+
+  function projected(x,z){
+    const horizon=H*(0.34 + g.lookY*0.12);
+    const p=(H*0.9-horizon)/(z+0.1);
+    const camX = g.roadX + g.lookX;
+    return {sx:W*0.5 + (x-camX)*p*1.5, sy:horizon + (1-1/(z+0.2))*(H*0.62), s:p};
+  }
+
+  function update(){
+    if(!g.run) return;
+    g.t++;
+    const left=keys['KeyA']||keys['ArrowLeft'];
+    const right=keys['KeyD']||keys['ArrowRight'];
+    const up=keys['KeyW']||keys['ArrowUp'];
+    const down=keys['KeyS']||keys['ArrowDown'];
+
+    if(left) g.roadX -= 0.08;
+    if(right) g.roadX += 0.08;
+    g.roadX = clamp(g.roadX,-3.2,3.2);
+
+    if(up) g.speed += 0.03;
+    if(down) g.speed -= 0.03;
+    g.speed = clamp(g.speed,0.6,2.8);
+
+    if(keys['Space'] && g.t%7===0) shoot();
+    if(g.fireCd>0) g.fireCd--;
+    if(g.fireDown && g.fireCd<=0){
+      shoot();
+      g.fireCd = 6;
+    }
+
+    g.mission--;
+    if(g.mission<=0){ g.money += 400 + Math.floor(r(0,400)); g.wanted = clamp(g.wanted+1,0,5); g.mission = 900; }
+
+    // lane dashes moving towards player
+    for(let i=0;i<g.lines.length;i++){
+      g.lines[i] -= g.speed*1.8;
+      if(g.lines[i] < 1) g.lines[i] = 250;
+    }
+
+    // spawn based on wanted
+    if(g.targets.length < 8 + g.wanted*3 && Math.random()<0.08) spawnTarget('cop');
+    if(Math.random()<0.02) spawnTarget('civil');
+
+    for(let i=g.targets.length-1;i>=0;i--){
+      const t=g.targets[i];
+      t.z -= g.speed*1.6;
+      t.x += t.vx;
+      if(t.x<-3.3||t.x>3.3) t.vx *= -1;
+
+      // collisions with player car (first-person body zone)
+      if(t.z<4 && Math.abs(t.x-g.roadX)<0.9){
+        g.hp -= (t.type==='cop'?9:5);
+        if(t.type==='civil'){ g.wanted=clamp(g.wanted+1,0,5); g.money += 20; }
+        g.targets.splice(i,1);
+        continue;
+      }
+
+      // passed behind player
+      if(t.z<1){ g.targets.splice(i,1); }
+    }
+
+    // enemy fire
+    if(g.wanted>0){
+      for(const t of g.targets){
+        if(t.type==='cop' && t.z<70 && Math.random()<0.01+g.wanted*0.002){ g.hp -= 1.2; }
+      }
+    }
+
+    // shots
+    for(let i=g.shots.length-1;i>=0;i--){
+      const s=g.shots[i];
+      s.x += s.vx;
+      s.z += s.vz;
+      s.life--;
+      if(s.life<=0){ g.shots.splice(i,1); continue; }
+
+      let hit=false;
+      for(let j=g.targets.length-1;j>=0;j--){
+        const t=g.targets[j];
+        if(Math.abs(s.x-t.x)<0.55 && Math.abs(s.z-t.z)<6){
+          t.hp -= 18;
+          hit = true;
+          if(t.hp<=0){
+            g.money += t.type==='cop'?130:15;
+            if(t.type==='cop' && Math.random()<0.35 && g.wanted>0) g.wanted--;
+            g.targets.splice(j,1);
+          }
+          break;
+        }
+      }
+      if(hit) g.shots.splice(i,1);
+    }
+
+    // decay wanted
+    if(g.wanted>0 && g.t%540===0) g.wanted--;
+
+    if(g.hp<=0){
+      g.run=false;
+      card.innerHTML=`<h1>Ты проиграл</h1><p>Деньги: <b>$${g.money}</b></p><p>Формат: GTA-подобная мини-игра от первого лица.</p><button id="restartBtn">Играть снова</button>`;
+      panel.style.display='grid';
+      document.getElementById('restartBtn').onclick=()=>{panel.style.display='none'; reset();};
+    }
+    sync();
+  }
+
+  function drawWorld(){
+    const horizon=H*(0.34 + g.lookY*0.12);
+
+    // sky
+    const sky=ctx.createLinearGradient(0,0,0,horizon);
+    sky.addColorStop(0,'#9fd5ff'); sky.addColorStop(1,'#ddefff');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,horizon);
+
+    // ground
+    const ground=ctx.createLinearGradient(0,horizon,0,H);
+    ground.addColorStop(0,'#2d3c2f'); ground.addColorStop(1,'#1c291f');
+    ctx.fillStyle=ground; ctx.fillRect(0,horizon,W,H-horizon);
+
+    // road perspective trapezoid
+    const roadTopW=W*0.15, roadBotW=W*0.95;
+    ctx.fillStyle='#35383f';
+    ctx.beginPath();
+    ctx.moveTo(W/2-roadTopW/2, horizon);
+    ctx.lineTo(W/2+roadTopW/2, horizon);
+    ctx.lineTo(W/2+roadBotW/2, H);
+    ctx.lineTo(W/2-roadBotW/2, H);
+    ctx.closePath();
+    ctx.fill();
+
+    // buildings
+    for(let i=0;i<18;i++){
+      const z=16+i*12;
+      const p=projected(0,z);
+      const bw=40*p.s, bh=110*p.s;
+      const left=projected(-6,z), right=projected(6,z);
+      ctx.fillStyle='#2a3548';
+      ctx.fillRect(left.sx-bw, left.sy-bh, bw, bh);
+      ctx.fillRect(right.sx, right.sy-bh, bw, bh);
+    }
+
+    // lane lines
+    ctx.strokeStyle='#ececec';
+    for(const z of g.lines){
+      const a=projected(0,z), b=projected(0,z+4);
+      ctx.lineWidth=Math.max(1,a.s*0.3);
+      ctx.beginPath(); ctx.moveTo(a.sx,a.sy); ctx.lineTo(b.sx,b.sy); ctx.stroke();
+    }
+
+    // mission marker
+    const mz=40 + (g.mission/900)*180;
+    const m=projected(0,mz);
+    ctx.strokeStyle='#00ff88';
+    ctx.lineWidth=Math.max(1,m.s*0.4);
+    ctx.beginPath(); ctx.arc(m.sx,m.sy,m.s*12,0,Math.PI*2); ctx.stroke();
+  }
+
+  function drawTargets(){
+    // distant to near
+    const sorted=[...g.targets].sort((a,b)=>b.z-a.z);
+    for(const t of sorted){
+      const p=projected(t.x,t.z);
+      if(p.sy < H*0.25 || p.sy>H+40) continue;
+      const w=Math.max(8,p.s*22), h=Math.max(6,p.s*13);
+      ctx.fillStyle=t.type==='cop'?'#2f66ff':'#ffbf5d';
+      ctx.fillRect(p.sx-w/2,p.sy-h/2,w,h);
+      ctx.fillStyle='#111';
+      ctx.fillRect(p.sx-w*0.25,p.sy-h*0.25,w*0.5,h*0.5);
+    }
+  }
+
+  function drawShots(){
+    for(const s of g.shots){
+      const p=projected(s.x,s.z);
+      ctx.fillStyle='#a7ff55';
+      const sz=Math.max(2,p.s*4);
+      ctx.fillRect(p.sx-sz/2,p.sy-sz/2,sz,sz);
+    }
+  }
+
+  function drawCockpit(){
+    // Car hood from first person
+    ctx.fillStyle='#ff5f2d';
+    ctx.beginPath();
+    ctx.moveTo(W*0.18,H);
+    ctx.lineTo(W*0.82,H);
+    ctx.lineTo(W*0.64,H*0.76);
+    ctx.lineTo(W*0.36,H*0.76);
+    ctx.closePath();
+    ctx.fill();
+
+    // windshield frame
+    ctx.strokeStyle='#111';
+    ctx.lineWidth=6;
+    ctx.beginPath();
+    ctx.moveTo(W*0.33,H*0.78);
+    ctx.lineTo(W*0.67,H*0.78);
+    ctx.stroke();
+
+    // crosshair
+    ctx.strokeStyle='rgba(255,255,255,.8)';
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    const cx=W*0.5, cy=H*(0.56 + g.lookY*0.07);
+    ctx.moveTo(cx-12,cy); ctx.lineTo(cx+12,cy);
+    ctx.moveTo(cx,cy-12); ctx.lineTo(cx,cy+12);
+    ctx.stroke();
+  }
+
+  function draw(){
+    drawWorld();
+    drawTargets();
+    drawShots();
+    drawCockpit();
+  }
+
+  function loop(){ update(); draw(); requestAnimationFrame(loop); }
+  startBtn.onclick=()=>{panel.style.display='none'; reset(); requestLock();};
+  loop();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Летающие Танки: Медвежьи Ракеты</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: Inter, Arial, sans-serif;
+      background: radial-gradient(circle at 50% 20%, #101a3a, #05070f 65%);
+    }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    .hud {
+      position: fixed; inset: 0; pointer-events: none; color: #fff;
+      text-shadow: 0 2px 8px rgba(0,0,0,.7);
+    }
+    .title {
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      font-weight: 700; font-size: clamp(14px, 2.5vw, 26px);
+      background: rgba(0,0,0,.35); padding: 8px 14px; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.25);
+    }
+    .info {
+      position: absolute; left: 12px; bottom: 12px; max-width: min(92vw, 680px);
+      background: rgba(0,0,0,.45); padding: 10px 12px; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.2);
+      font-size: clamp(12px, 1.8vw, 16px); line-height: 1.35;
+    }
+    .btn {
+      pointer-events: auto; position: fixed; right: 14px; bottom: 14px;
+      border: 0; color: #fff; font-weight: 700; cursor: pointer;
+      background: linear-gradient(135deg, #2e8cff, #915eff);
+      padding: 10px 14px; border-radius: 12px;
+      box-shadow: 0 10px 24px rgba(65,110,255,.35);
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div class="hud">
+    <div class="title">🚀 Летающие танки • взрыв станции • медвежьи ракеты</div>
+    <div class="info" id="text"></div>
+  </div>
+  <button class="btn" id="restart">Перезапуск</button>
+
+  <script>
+    const c = document.getElementById('game');
+    const x = c.getContext('2d');
+    const text = document.getElementById('text');
+    const restartBtn = document.getElementById('restart');
+
+    const state = {
+      t: 0,
+      phase: 0,
+      shake: 0,
+      earthHit: false,
+      earthBoom: false,
+      tanks: [],
+      station: { x: 0, y: 120, r: 44, alive: true },
+      debris: [],
+      enemy: { active: false, x: 0, y: 0, cooldown: 0 },
+      rockets: [],
+      bubbles: [],
+    };
+
+    function resize(){ c.width = innerWidth; c.height = innerHeight; }
+    addEventListener('resize', resize); resize();
+
+    function reset(){
+      state.t = 0; state.phase = 0; state.shake = 0;
+      state.earthHit = false; state.earthBoom = false;
+      state.station = { x: c.width*0.5, y: c.height*0.18, r: 44, alive: true };
+      state.debris = []; state.rockets = []; state.bubbles = [];
+      state.enemy = { active: false, x: c.width*0.5, y: c.height*0.88, cooldown: 0 };
+      state.tanks = Array.from({length: 7}, (_, i) => ({
+        x: c.width*0.18 + i*(c.width*0.1),
+        y: c.height*0.72 + Math.sin(i)*12,
+        vy: -0.45 - Math.random()*0.35,
+        hp: 100,
+        alive: true,
+      }));
+    }
+    restartBtn.onclick = reset;
+    reset();
+
+    function drawTank(t){
+      x.save();
+      x.translate(t.x, t.y);
+      x.fillStyle = '#355d2f'; x.fillRect(-22, -9, 44, 18);
+      x.fillStyle = '#243f20'; x.fillRect(-28, 8, 56, 8);
+      x.fillStyle = '#4f8a45'; x.fillRect(-10, -18, 20, 10);
+      x.fillStyle = '#7cbf66'; x.fillRect(7, -14, 24, 4);
+      x.fillStyle = '#fff'; x.font = '12px Arial';
+      x.fillText(Math.max(0, t.hp)|0, -11, -22);
+      x.restore();
+    }
+
+    function circle(o, color){
+      x.fillStyle = color; x.beginPath(); x.arc(o.x, o.y, o.r, 0, Math.PI*2); x.fill();
+    }
+
+    function update(dt){
+      state.t += dt;
+
+      // Фаза 0: танки взлетают
+      if(state.t > 0.2) state.phase = 1;
+      if(state.phase === 1){
+        for(const t of state.tanks){ if(t.alive) t.y += t.vy * dt * 60; }
+        if(state.t > 4){ state.phase = 2; }
+      }
+
+      // Фаза 2: взрыв станции
+      if(state.phase === 2 && state.station.alive){
+        state.station.alive = false;
+        state.shake = 18;
+        for(let i=0;i<70;i++){
+          const a = Math.random()*Math.PI*2, s = 1.5 + Math.random()*5;
+          state.debris.push({
+            x: state.station.x, y: state.station.y, vx: Math.cos(a)*s, vy: Math.sin(a)*s,
+            r: 2 + Math.random()*5, hot: 1
+          });
+        }
+      }
+
+      for(const d of state.debris){
+        d.vy += 0.055*dt*60; d.x += d.vx*dt*60; d.y += d.vy*dt*60; d.hot *= 0.995;
+        if(!state.earthHit && d.y > c.height*0.88){ state.earthHit = true; state.phase = 3; state.shake = 24; }
+      }
+
+      // Фаза 3: Земля взрывается, вылезает враг
+      if(state.phase === 3 && !state.earthBoom){
+        state.earthBoom = true;
+        for(let i=0;i<120;i++){
+          const a = Math.random()*Math.PI*2, s = 1 + Math.random()*7;
+          state.bubbles.push({ x:c.width*0.5, y:c.height*0.88, vx:Math.cos(a)*s, vy:Math.sin(a)*s-2, r:2+Math.random()*7, life:1, metal:true });
+        }
+      }
+      if(state.phase >= 3) state.enemy.active = true;
+
+      // Враг стреляет "пулемётом" ракетами с плюшевыми мишками
+      if(state.enemy.active){
+        state.enemy.cooldown -= dt;
+        if(state.enemy.cooldown <= 0){
+          state.enemy.cooldown = 0.13;
+          const target = state.tanks.find(t=>t.alive);
+          if(target){
+            const dx = target.x - state.enemy.x, dy = target.y - state.enemy.y;
+            const len = Math.hypot(dx,dy)||1;
+            state.rockets.push({
+              x: state.enemy.x, y: state.enemy.y,
+              vx: dx/len*6.7 + (Math.random()-0.5)*0.7,
+              vy: dy/len*6.7 + (Math.random()-0.5)*0.7,
+              r: 7, teddy: true
+            });
+          }
+        }
+      }
+
+      for(const r of state.rockets){
+        r.x += r.vx*dt*60; r.y += r.vy*dt*60;
+        for(const t of state.tanks){
+          if(!t.alive) continue;
+          const hit = Math.hypot(r.x-t.x, r.y-t.y) < 26;
+          if(hit){
+            t.hp -= 25 + Math.random()*12;
+            if(t.hp <= 0) t.alive = false;
+            r.dead = true;
+            for(let i=0;i<24;i++){
+              const a=Math.random()*Math.PI*2, s=1+Math.random()*5;
+              state.bubbles.push({x:r.x,y:r.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,r:2+Math.random()*5,life:1,metal:true});
+            }
+          }
+        }
+      }
+      state.rockets = state.rockets.filter(r=>!r.dead && r.x>-60 && r.x<c.width+60 && r.y>-60 && r.y<c.height+60);
+
+      for(const b of state.bubbles){
+        b.x += b.vx*dt*60; b.y += b.vy*dt*60; b.vy += 0.03*dt*60; b.life -= 0.015*dt*60;
+      }
+      state.bubbles = state.bubbles.filter(b=>b.life>0);
+
+      state.shake *= 0.88;
+    }
+
+    function draw(){
+      const sx = (Math.random()-0.5) * state.shake;
+      const sy = (Math.random()-0.5) * state.shake;
+
+      x.save();
+      x.clearRect(0,0,c.width,c.height);
+      x.translate(sx, sy);
+
+      // Небо/земля
+      x.fillStyle = '#050915'; x.fillRect(0,0,c.width,c.height);
+      x.fillStyle = '#1f2f13'; x.fillRect(0,c.height*0.88,c.width,c.height*0.12);
+
+      // Станция
+      if(state.station.alive){
+        circle({x:state.station.x,y:state.station.y,r:state.station.r}, '#9fb7cc');
+        x.strokeStyle = '#d7ecff'; x.lineWidth = 6;
+        x.beginPath(); x.arc(state.station.x, state.station.y, state.station.r+14, 0, Math.PI*2); x.stroke();
+      }
+
+      // Обломки
+      for(const d of state.debris){
+        x.fillStyle = `rgba(255,${120+((1-d.hot)*80)|0},30,0.9)`;
+        x.fillRect(d.x-d.r*0.5, d.y-d.r*0.5, d.r, d.r);
+      }
+
+      // Враг
+      if(state.enemy.active){
+        x.fillStyle = '#642828'; x.fillRect(state.enemy.x-18, state.enemy.y-24, 36, 24);
+        x.fillStyle = '#ff5757'; x.fillRect(state.enemy.x+2, state.enemy.y-18, 20, 5);
+      }
+
+      // Ракеты с мишками
+      for(const r of state.rockets){
+        x.fillStyle = '#ffb400'; x.fillRect(r.x-8, r.y-3, 16, 6);
+        x.fillStyle = '#8b5e3c';
+        x.beginPath(); x.arc(r.x+3, r.y, 5, 0, Math.PI*2); x.fill(); // "плюшевый мишка"
+      }
+
+      // Бабблы "резиновые, но с металлической стружкой"
+      for(const b of state.bubbles){
+        x.strokeStyle = `rgba(164,220,255,${b.life})`;
+        x.lineWidth = 1.5;
+        x.beginPath(); x.arc(b.x,b.y,b.r,0,Math.PI*2); x.stroke();
+        x.fillStyle = `rgba(200,200,220,${b.life*0.75})`;
+        x.fillRect(b.x-1,b.y-1,2,2);
+      }
+
+      // Танки
+      for(const t of state.tanks){ if(t.alive) drawTank(t); }
+
+      // Земляной взрыв
+      if(state.earthBoom){
+        const r = 60 + Math.sin(state.t*8)*12;
+        x.strokeStyle = 'rgba(255,120,40,.65)'; x.lineWidth = 8;
+        x.beginPath(); x.arc(c.width*0.5, c.height*0.88, r, 0, Math.PI*2); x.stroke();
+      }
+
+      x.restore();
+
+      const alive = state.tanks.filter(t=>t.alive).length;
+      if(state.phase < 2) text.textContent = 'Фаза 1: Танки взлетают в небо.';
+      else if(state.phase === 2) text.textContent = 'Фаза 2: Космическая станция взрывается, обломки падают на Землю.';
+      else text.textContent = `Фаза 3: Из взрыва вылез враг и стреляет ракетами с мишками. Живых танков: ${alive}`;
+    }
+
+    let prev = performance.now();
+    function loop(now){
+      const dt = Math.min(0.033, (now - prev)/1000); prev = now;
+      update(dt); draw(); requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>

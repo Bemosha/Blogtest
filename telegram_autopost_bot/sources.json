@@ -1,0 +1,14 @@
+[
+  {
+    "type": "rss",
+    "name": "Habr: Все потоки",
+    "url": "https://habr.com/ru/rss/all/all/?fl=ru",
+    "limit": 12
+  },
+  {
+    "type": "rss",
+    "name": "VC.ru: Популярное",
+    "url": "https://vc.ru/rss/all",
+    "limit": 10
+  }
+]

@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tank PvP 1v1</title>
+  <style>
+    body{margin:0;background:#111;color:#fff;font-family:Arial,sans-serif;display:flex;flex-direction:column;align-items:center}
+    #ui{margin:10px;text-align:center}
+    canvas{background:#1e2c1e;border:1px solid #445;max-width:95vw;max-height:80vh}
+    .muted{color:#9ab}
+    #nickOverlay{position:fixed;inset:0;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;z-index:10}
+    #nickBox{background:#1c1f26;border:1px solid #3b4458;border-radius:12px;padding:18px;min-width:280px;text-align:center}
+    #nickInput{width:92%;padding:10px;border-radius:8px;border:1px solid #445;background:#0f1320;color:#fff;margin:10px 0}
+    #startBtn{padding:10px 16px;border:none;border-radius:8px;background:#4aa3ff;color:#fff;cursor:pointer;font-weight:bold}
+  </style>
+</head>
+<body>
+  <div id="nickOverlay">
+    <div id="nickBox">
+      <div style="font-size:18px;font-weight:bold">Введи никнейм</div>
+      <input id="nickInput" maxlength="18" placeholder="например: Danil" />
+      <br />
+      <button id="startBtn">Начать игру</button>
+      <div class="muted" style="margin-top:8px;font-size:12px">Пока один — против бота</div>
+    </div>
+  </div>
+
+  <div id="ui">
+    <h2>Онлайн PvP 1v1</h2>
+    <div id="status" class="muted">Подключение...</div>
+    <div class="muted" id="apiLabel" style="font-size:12px;margin-top:4px"></div>
+    <div class="muted" id="perf" style="font-size:12px;margin-top:4px">FPS: -- | Ping: --</div>
+    <button id="apiBtn" style="margin-top:6px;padding:6px 10px;border:none;border-radius:8px;background:#2d7ef7;color:#fff;cursor:pointer">Сменить сервер</button>
+    <div id="hp">HP: 5 / 5</div>
+    <div class="muted">WASD — ехать, Space/Enter — выстрел</div>
+  </div>
+  <canvas id="game" width="900" height="600"></canvas>
+
+  <script>
+    const API_BASE_KEY='tank3d_pvp_api_base_v1';
+    const c=document.getElementById('game');
+    const x=c.getContext('2d');
+    const statusEl=document.getElementById('status');
+    const apiLabel=document.getElementById('apiLabel');
+    const perfEl=document.getElementById('perf');
+    const apiBtn=document.getElementById('apiBtn');
+    const hpEl=document.getElementById('hp');
+    const nickOverlay=document.getElementById('nickOverlay');
+    const nickInput=document.getElementById('nickInput');
+    const startBtn=document.getElementById('startBtn');
+
+    function normalizeApiBase(v){
+      v=String(v||'').trim();
+      if(!v)return '';
+      if(!/^https?:\/\//i.test(v))v='http://'+v;
+      v=v.replace(/\/+$/,'');
+      return v;
+    }
+
+    function defaultApiBase(){
+      const h=(location&&location.hostname?String(location.hostname):'').trim();
+      if(!h||location.protocol==='file:'||h==='localhost'||h==='127.0.0.1'){
+        return 'http://127.0.0.1:8765';
+      }
+      // Рекомендуемо для прода: reverse-proxy /api -> pvp_server.py
+      return location.origin+'/api';
+    }
+
+    function resolveApiBase(){
+      try{
+        const saved=normalizeApiBase(localStorage.getItem(API_BASE_KEY)||'');
+        if(saved)return saved;
+      }catch(_){ }
+      return defaultApiBase();
+    }
+
+    let API=resolveApiBase();
+
+    function updateApiLabel(){
+      if(apiLabel)apiLabel.textContent='Сервер API: '+API;
+    }
+
+    let playerId=null, roomId=null, side='left', nickname='';
+    let state=null;
+    const renderPlayers={};
+    let onlineStarted=false;
+    const keys={w:false,a:false,s:false,d:false,fire:false};
+    let lastInputHash='';
+    let lastInputSentAt=0;
+    let pingMs=0;
+    let fps=0;
+    let fpsFrames=0;
+    let fpsTime=performance.now();
+
+    const bgCanvas=document.createElement('canvas');
+    bgCanvas.width=900; bgCanvas.height=600;
+    const bgx=bgCanvas.getContext('2d');
+
+    function seededRandom(seed){
+      let t=seed>>>0;
+      return ()=>{
+        t+=0x6D2B79F5;
+        let x=Math.imul(t^(t>>>15),1|t);
+        x^=x+Math.imul(x^(x>>>7),61|x);
+        return ((x^(x>>>14))>>>0)/4294967296;
+      };
+    }
+
+    function buildBackground(){
+      const rnd=seededRandom(1337);
+
+      // Sky
+      const sky=bgx.createLinearGradient(0,0,0,360);
+      sky.addColorStop(0,'#78a9d8');
+      sky.addColorStop(1,'#bdd7ec');
+      bgx.fillStyle=sky;
+      bgx.fillRect(0,0,bgCanvas.width,bgCanvas.height);
+
+      // Distant fog / horizon
+      const fog=bgx.createLinearGradient(0,250,0,420);
+      fog.addColorStop(0,'rgba(210,230,240,0.65)');
+      fog.addColorStop(1,'rgba(170,180,150,0.05)');
+      bgx.fillStyle=fog;
+      bgx.fillRect(0,230,bgCanvas.width,250);
+
+      // Hills
+      bgx.fillStyle='#6e835f';
+      bgx.beginPath();
+      bgx.moveTo(0,290);
+      for(let i=0;i<=900;i+=30){
+        const y=285+Math.sin(i*0.013)*14+Math.cos(i*0.028)*9;
+        bgx.lineTo(i,y);
+      }
+      bgx.lineTo(900,360); bgx.lineTo(0,360); bgx.closePath(); bgx.fill();
+
+      // Forest line
+      for(let i=0;i<55;i++){
+        const x0=rnd()*900;
+        const h=30+rnd()*85;
+        const w=10+rnd()*20;
+        bgx.fillStyle=`rgba(${20+Math.floor(rnd()*25)},${55+Math.floor(rnd()*40)},${24+Math.floor(rnd()*25)},0.9)`;
+        bgx.beginPath();
+        bgx.moveTo(x0,325-h);
+        bgx.lineTo(x0-w*0.5,325);
+        bgx.lineTo(x0+w*0.5,325);
+        bgx.closePath();
+        bgx.fill();
+      }
+
+      // Ground gradient
+      const ground=bgx.createLinearGradient(0,320,0,600);
+      ground.addColorStop(0,'#8d7c59');
+      ground.addColorStop(0.55,'#7a6243');
+      ground.addColorStop(1,'#5f4c35');
+      bgx.fillStyle=ground;
+      bgx.fillRect(0,320,900,280);
+
+      // Dirt / grass texture
+      for(let i=0;i<1700;i++){
+        const px=rnd()*900;
+        const py=330+rnd()*270;
+        const s=1+rnd()*3.2;
+        bgx.fillStyle=rnd()>0.55?'rgba(120,94,62,0.28)':'rgba(103,122,72,0.22)';
+        bgx.fillRect(px,py,s,s);
+      }
+
+      // Dry grass clumps
+      bgx.strokeStyle='rgba(99,84,58,0.42)';
+      for(let i=0;i<180;i++){
+        const gx=rnd()*900;
+        const gy=360+rnd()*240;
+        const h=6+rnd()*11;
+        bgx.beginPath();
+        bgx.moveTo(gx,gy);
+        bgx.lineTo(gx-1.2,gy-h);
+        bgx.moveTo(gx+1.4,gy+0.4);
+        bgx.lineTo(gx+2.2,gy-h*0.85);
+        bgx.stroke();
+      }
+
+      // Vignette
+      const vg=bgx.createRadialGradient(450,340,140,450,340,620);
+      vg.addColorStop(0,'rgba(0,0,0,0)');
+      vg.addColorStop(1,'rgba(0,0,0,0.28)');
+      bgx.fillStyle=vg;
+      bgx.fillRect(0,0,900,600);
+    }
+
+    window.addEventListener('keydown',e=>{
+      if(e.code==='KeyW')keys.w=true;
+      if(e.code==='KeyA')keys.a=true;
+      if(e.code==='KeyS')keys.s=true;
+      if(e.code==='KeyD')keys.d=true;
+      if(e.code==='Space'||e.code==='Enter')keys.fire=true;
+    });
+    window.addEventListener('keyup',e=>{
+      if(e.code==='KeyW')keys.w=false;
+      if(e.code==='KeyA')keys.a=false;
+      if(e.code==='KeyS')keys.s=false;
+      if(e.code==='KeyD')keys.d=false;
+      if(e.code==='Space'||e.code==='Enter')keys.fire=false;
+    });
+
+    async function jpost(url,data){
+      const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+      return await r.json();
+    }
+
+    async function join(){
+      try{
+        const j=await jpost(API+'/join',{nickname});
+        playerId=j.playerId; roomId=j.roomId; side=j.side;
+        if(j.full){
+          statusEl.textContent='Комната заполнена. Открой позже.';
+          return;
+        }
+        statusEl.textContent='Комната '+roomId+' | Вы: '+(side==='left'?'СИНИЙ':'КРАСНЫЙ')+(j.ready?' | Бой!':' | Ждём второго игрока...');
+      }catch(e){
+        statusEl.textContent='Нет связи с сервером. Проверь API и запусти: python pvp_server.py';
+      }
+    }
+
+    async function sendInput(){
+      if(!playerId)return;
+      const now=performance.now();
+      const hash=`${keys.w?1:0}${keys.a?1:0}${keys.s?1:0}${keys.d?1:0}${keys.fire?1:0}`;
+      if(hash===lastInputHash && now-lastInputSentAt<120)return;
+      lastInputHash=hash;
+      lastInputSentAt=now;
+      try{await jpost(API+'/input',{playerId,keys});}catch(e){}
+    }
+    async function pullState(){
+      if(!playerId)return;
+      try{
+        const t0=performance.now();
+        const s=await jpost(API+'/state',{playerId});
+        pingMs=Math.round(performance.now()-t0);
+        state=s;
+        statusEl.textContent='Комната '+roomId+(s.ready?' | Бой!':' | Ждём второго игрока...');
+        const me=s.players[playerId];
+        if(me)hpEl.textContent='HP: '+me.hp+' / 5';
+        if(s.winner){
+          statusEl.textContent='Победил: '+(s.winner===playerId?'ТЫ':'ПРОТИВНИК')+' (R для рестарта)';
+        }
+      }catch(e){}
+    }
+
+    window.addEventListener('keydown',async e=>{
+      if(e.code==='KeyR'&&playerId){
+        try{await jpost(API+'/restart',{playerId});}catch(err){}
+      }
+    });
+
+    function drawTank(p,color){
+      x.save();
+
+      // Shadow
+      x.fillStyle='rgba(0,0,0,0.28)';
+      x.beginPath();
+      x.ellipse(p.x+5,p.y+8,22,12,0,0,Math.PI*2);
+      x.fill();
+
+      x.translate(p.x,p.y);
+      x.rotate(p.a);
+
+      // Tracks
+      x.fillStyle='#2f2f33';
+      x.fillRect(-21,-14,42,7);
+      x.fillRect(-21,7,42,7);
+
+      // Hull
+      const hull=x.createLinearGradient(-18,-12,18,12);
+      hull.addColorStop(0,color);
+      hull.addColorStop(1,'#22303a');
+      x.fillStyle=hull;
+      x.fillRect(-18,-11,36,22);
+      x.strokeStyle='rgba(255,255,255,0.2)';
+      x.strokeRect(-18,-11,36,22);
+
+      // Turret
+      x.fillStyle='#3f4a56';
+      x.beginPath();
+      x.arc(1,0,8,0,Math.PI*2);
+      x.fill();
+
+      // Barrel
+      const barrel=x.createLinearGradient(0,-3,26,3);
+      barrel.addColorStop(0,'#4a525b');
+      barrel.addColorStop(1,'#1f252b');
+      x.fillStyle=barrel;
+      x.fillRect(2,-3,25,6);
+
+      x.restore();
+    }
+
+    function drawName(p,name,isYou,isBot){
+      x.save();
+      x.font='bold 14px Arial';
+      x.textAlign='center';
+      x.textBaseline='bottom';
+      const label=isBot?'Бот':(name||'Игрок');
+      x.fillStyle=isYou?'#bde0ff':'#fff';
+      x.strokeStyle='rgba(0,0,0,0.7)';
+      x.lineWidth=4;
+      x.strokeText(label,p.x,p.y-18);
+      x.fillText(label,p.x,p.y-18);
+      x.restore();
+    }
+
+    function render(){
+      x.clearRect(0,0,c.width,c.height);
+      x.drawImage(bgCanvas,0,0);
+
+      const now=performance.now();
+      fpsFrames++;
+      if(now-fpsTime>=500){
+        fps=Math.round((fpsFrames*1000)/(now-fpsTime));
+        fpsFrames=0;
+        fpsTime=now;
+        if(perfEl)perfEl.textContent=`FPS: ${fps} | Ping: ${pingMs||'--'} ms`;
+      }
+
+      if(state){
+        for(const b of state.bullets){
+          x.fillStyle='rgba(255,180,70,0.25)';
+          x.beginPath();x.arc(b.x,b.y,8,0,Math.PI*2);x.fill();
+          x.fillStyle='#ffd34d';
+          x.beginPath();x.arc(b.x,b.y,3,0,Math.PI*2);x.fill();
+        }
+
+        const ids=Object.keys(state.players);
+        for(const id of ids){
+          const pServer=state.players[id];
+          if(!renderPlayers[id]){
+            renderPlayers[id]={...pServer};
+          }else{
+            const rp=renderPlayers[id];
+            const t=id===playerId?0.34:0.22;
+            rp.x+=(pServer.x-rp.x)*t;
+            rp.y+=(pServer.y-rp.y)*t;
+            let da=(pServer.a-rp.a+Math.PI)%(Math.PI*2)-Math.PI;
+            rp.a+=da*t;
+            rp.hp=pServer.hp;
+            rp.name=pServer.name;
+            rp.isBot=pServer.isBot;
+          }
+          const p=renderPlayers[id];
+          drawTank(p,id===playerId?'#4aa3ff':'#e85f5f');
+          drawName(p,p.name,id===playerId,!!p.isBot);
+
+          // HP bar
+          const hpMax=5;
+          const ratio=Math.max(0,Math.min(1,(p.hp||0)/hpMax));
+          x.fillStyle='rgba(0,0,0,0.45)';
+          x.fillRect(p.x-18,p.y-30,36,5);
+          x.fillStyle=ratio>0.4?'#6de06d':'#ff6a6a';
+          x.fillRect(p.x-18,p.y-30,36*ratio,5);
+        }
+
+        // Cleanup interpolation cache
+        for(const id of Object.keys(renderPlayers)){
+          if(!state.players[id])delete renderPlayers[id];
+        }
+      }
+      requestAnimationFrame(render);
+    }
+
+    function startOnline(){
+      if(onlineStarted)return;
+      onlineStarted=true;
+      join();
+      setInterval(sendInput,33);
+      setInterval(pullState,66);
+    }
+
+    function submitNickname(){
+      const raw=(nickInput.value||'').trim();
+      nickname=raw?raw.slice(0,18):'Игрок';
+      nickOverlay.style.display='none';
+      statusEl.textContent='Подключение...';
+      updateApiLabel();
+      startOnline();
+    }
+
+    function changeApiBase(){
+      const entered=prompt('Введи адрес API сервера (пример: http://192.168.1.10:8765 или https://site.ru/api):',API);
+      const next=normalizeApiBase(entered||'');
+      if(!next)return;
+      API=next;
+      try{localStorage.setItem(API_BASE_KEY,API);}catch(_){ }
+      updateApiLabel();
+      statusEl.textContent='API обновлён: '+API;
+    }
+
+    if(apiBtn)apiBtn.addEventListener('click',changeApiBase);
+
+    startBtn.addEventListener('click',submitNickname);
+    nickInput.addEventListener('keydown',e=>{if(e.code==='Enter')submitNickname();});
+    setTimeout(()=>nickInput.focus(),0);
+
+    buildBackground();
+    updateApiLabel();
+
+    render();
+  </script>
+</body>
+</html>

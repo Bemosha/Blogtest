@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Создай игру любую - Space Shooter 3D</title>
+<style>body{margin:0;overflow:hidden;background:#020617;color:#fff;font-family:Arial}#hud{position:fixed;top:10px;left:10px;background:#0008;padding:8px 10px;border-radius:10px}</style>
+</head><body>
+<div id="hud">🚀 Создай игру любую<br/>Счёт: <span id="s">0</span><br/>Описание: Создай игру любую</div>
+<script src="https://unpkg.com/three@0.160.1/build/three.min.js"></script>
+<script>
+const scene=new THREE.Scene();scene.fog=new THREE.Fog(0x020617,20,140);
+const cam=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,300);cam.position.set(0,4,12);
+const r=new THREE.WebGLRenderer({antialias:true});r.setSize(innerWidth,innerHeight);document.body.appendChild(r.domElement);
+scene.add(new THREE.HemisphereLight(0x99ccff,0x101020,1));const dl=new THREE.DirectionalLight(0xffffff,1);dl.position.set(6,10,8);scene.add(dl);
+const stars=new THREE.Points(new THREE.BufferGeometry(),new THREE.PointsMaterial({color:0xffffff,size:0.12}));
+const arr=new Float32Array(2400*3);for(let i=0;i<2400;i++){arr[i*3]=(Math.random()-.5)*200;arr[i*3+1]=(Math.random()-.5)*120;arr[i*3+2]=-Math.random()*260;}stars.geometry.setAttribute('position',new THREE.BufferAttribute(arr,3));scene.add(stars);
+const ship=new THREE.Mesh(new THREE.ConeGeometry(0.8,2.2,10),new THREE.MeshStandardMaterial({color:'#60a5fa',metalness:.6,roughness:.2}));ship.rotation.x=Math.PI/2;ship.position.z=6;scene.add(ship);
+const bullets=[],rocks=[];let score=0,alive=true;const keys=new Set();
+function spawn(){const m=new THREE.Mesh(new THREE.IcosahedronGeometry(.9+Math.random()*1.1,0),new THREE.MeshStandardMaterial({color:'#fb7185',roughness:.8}));m.position.set((Math.random()-.5)*16,(Math.random()-.5)*8,-80);scene.add(m);rocks.push(m);}
+setInterval(()=>alive&&spawn(),420);
+addEventListener('keydown',e=>keys.add(e.key));addEventListener('keyup',e=>keys.delete(e.key));
+addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();r.setSize(innerWidth,innerHeight)});
+let t0=performance.now();function loop(t){const dt=Math.min(.033,(t-t0)/1000);t0=t;if(alive){
+if(keys.has('ArrowLeft')||keys.has('a'))ship.position.x-=8*dt;if(keys.has('ArrowRight')||keys.has('d'))ship.position.x+=8*dt;
+if(keys.has('ArrowUp')||keys.has('w'))ship.position.y+=6*dt;if(keys.has('ArrowDown')||keys.has('s'))ship.position.y-=6*dt;
+ship.position.x=Math.max(-8,Math.min(8,ship.position.x));ship.position.y=Math.max(-4.5,Math.min(4.5,ship.position.y));
+if(Math.random()<0.38){const b=new THREE.Mesh(new THREE.SphereGeometry(.14,8,8),new THREE.MeshBasicMaterial({color:0xa7f3d0}));b.position.copy(ship.position);b.position.z-=1;scene.add(b);bullets.push(b);}
+for(let i=bullets.length-1;i>=0;i--){const b=bullets[i];b.position.z-=55*dt;if(b.position.z<-120){scene.remove(b);bullets.splice(i,1);continue;}for(let j=rocks.length-1;j>=0;j--){const o=rocks[j];if(b.position.distanceTo(o.position)<1.25){scene.remove(o);rocks.splice(j,1);scene.remove(b);bullets.splice(i,1);score+=10;break;}}}
+for(let i=rocks.length-1;i>=0;i--){const o=rocks[i];o.position.z+=20*dt+score*0.003;o.rotation.x+=dt;o.rotation.y+=dt*1.4;if(o.position.distanceTo(ship.position)<1.3){alive=false;alert('Игра окончена. Счёт: '+score);}if(o.position.z>20){scene.remove(o);rocks.splice(i,1);}}
+stars.position.z+=dt*12;if(stars.position.z>120)stars.position.z=0;document.getElementById('s').textContent=score;}
+cam.position.x+=(ship.position.x-cam.position.x)*.08;cam.position.y+=(ship.position.y+3-cam.position.y)*.08;cam.lookAt(ship.position.x,ship.position.y,0);
+r.render(scene,cam);requestAnimationFrame(loop);}requestAnimationFrame(loop);
+</script></body></html>

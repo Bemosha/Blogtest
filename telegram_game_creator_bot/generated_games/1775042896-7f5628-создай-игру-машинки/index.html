@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Road Escape 3D</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, Segoe UI, Arial, sans-serif;
+      overflow: hidden;
+      background: radial-gradient(circle at 50% 20%, #1f2937 0%, #1b1b1b 65%);
+      color: #fff;
+    }
+    #game { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+    .hud {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .panel {
+      background: rgba(12, 16, 28, 0.72);
+      border: 1px solid rgba(255,255,255,0.15);
+      backdrop-filter: blur(6px);
+      border-radius: 12px;
+      padding: 8px 12px;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+    #gameOver {
+      position: fixed;
+      inset: 0;
+      display: none;
+      place-items: center;
+      background: rgba(0,0,0,0.45);
+      z-index: 20;
+    }
+    #gameOverBox {
+      background: #0f172a;
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 16px;
+      padding: 20px;
+      text-align: center;
+      width: min(92vw, 420px);
+    }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      background: #fff14e;
+      color: #0a0a0a;
+      font-weight: 700;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div class="hud">
+    <div class="panel"><b>Создай игру машинки</b><br/>Описание: Создай игру машинки</div>
+    <div class="panel" id="score">Счёт: 0<br/>Скорость: 1.0x</div>
+  </div>
+
+  <div id="gameOver">
+    <div id="gameOverBox">
+      <h2 style="margin-top:0">Игра окончена</h2>
+      <p id="finalScore">Счёт: 0</p>
+      <button id="restartBtn">Играть снова</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/three@0.160.1/build/three.min.js"></script>
+  <script>
+    const canvas = document.getElementById('game');
+    const scoreEl = document.getElementById('score');
+    const gameOver = document.getElementById('gameOver');
+    const finalScore = document.getElementById('finalScore');
+    const restartBtn = document.getElementById('restartBtn');
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#1b1b1b');
+    scene.fog = new THREE.Fog('#1b1b1b', 18, 85);
+
+    const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(0, 6, 12);
+    camera.lookAt(0, 1.5, 0);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+
+    const hemi = new THREE.HemisphereLight(0x99ccff, 0x1a1a1a, 0.9);
+    scene.add(hemi);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
+    keyLight.position.set(8, 12, 6);
+    keyLight.castShadow = true;
+    scene.add(keyLight);
+
+    const roadGeo = new THREE.PlaneGeometry(18, 220);
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x101421, roughness: 0.92, metalness: 0.05 });
+    const road = new THREE.Mesh(roadGeo, roadMat);
+    road.rotation.x = -Math.PI / 2;
+    road.position.z = -75;
+    road.receiveShadow = true;
+    scene.add(road);
+
+    const lineMat = new THREE.MeshStandardMaterial({ color: 0x2a334f });
+    for (let i = 0; i < 36; i++) {
+      const lane = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.02, 2.8), lineMat);
+      lane.position.set(0, 0.02, -i * 6);
+      scene.add(lane);
+    }
+
+    const starGeo = new THREE.BufferGeometry();
+    const starCount = 1800;
+    const positions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      positions[i * 3 + 0] = (Math.random() - 0.5) * 180;
+      positions[i * 3 + 1] = Math.random() * 80 + 5;
+      positions[i * 3 + 2] = -Math.random() * 260;
+    }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.12 }));
+    scene.add(stars);
+
+    const ship = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(1.4, 0.9, 2.3),
+      new THREE.MeshStandardMaterial({ color: '#58ff9b', roughness: 0.35, metalness: 0.45 })
+    );
+    body.castShadow = true;
+    ship.add(body);
+
+    const cockpit = new THREE.Mesh(
+      new THREE.BoxGeometry(0.8, 0.45, 0.8),
+      new THREE.MeshStandardMaterial({ color: 0xcceeff, roughness: 0.12, metalness: 0.75 })
+    );
+    cockpit.position.set(0, 0.5, 0.25);
+    cockpit.castShadow = true;
+    ship.add(cockpit);
+    ship.position.set(0, 0.75, 3.5);
+    scene.add(ship);
+
+    const lanes = [-4.8, -2.4, 0, 2.4, 4.8];
+    let targetLane = 2;
+
+    const obstacles = [];
+    function makeObstacle() {
+      const h = 1 + Math.random() * 1.8;
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(1.6, h, 1.6),
+        new THREE.MeshStandardMaterial({ color: '#ff8a3d', roughness: 0.5, metalness: 0.2 })
+      );
+      mesh.castShadow = true;
+      mesh.position.set(lanes[Math.floor(Math.random() * lanes.length)], h / 2, -80 - Math.random() * 40);
+      scene.add(mesh);
+      obstacles.push(mesh);
+    }
+
+    let spawnTimer = 0;
+    let speed = 24;
+    let score = 0;
+    let alive = true;
+    const keys = new Set();
+    let touchX = null;
+
+    function restart() {
+      alive = true;
+      speed = 24;
+      score = 0;
+      targetLane = 2;
+      ship.position.set(0, 0.75, 3.5);
+      for (const o of obstacles) scene.remove(o);
+      obstacles.length = 0;
+      spawnTimer = 0;
+      gameOver.style.display = 'none';
+    }
+
+    function hit(a, b) {
+      const dx = Math.abs(a.x - b.x);
+      const dz = Math.abs(a.z - b.z);
+      return dx < 1.2 && dz < 1.4;
+    }
+
+    function update(dt) {
+      if (!alive) return;
+
+      if (keys.has('ArrowLeft') || keys.has('a') || keys.has('A')) targetLane = Math.max(0, targetLane - 1);
+      if (keys.has('ArrowRight') || keys.has('d') || keys.has('D')) targetLane = Math.min(lanes.length - 1, targetLane + 1);
+      keys.clear();
+
+      ship.position.x += (lanes[targetLane] - ship.position.x) * Math.min(1, dt * 12);
+      ship.rotation.z = (lanes[targetLane] - ship.position.x) * -0.08;
+
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        makeObstacle();
+        spawnTimer = Math.max(0.22, 0.72 - score * 0.004);
+      }
+
+      speed += dt * 0.35;
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        const o = obstacles[i];
+        o.position.z += speed * dt;
+        o.rotation.x += dt * 0.9;
+        o.rotation.y += dt * 1.2;
+
+        if (hit(ship.position, o.position)) {
+          alive = false;
+          finalScore.textContent = `Счёт: ${Math.floor(score)}`;
+          gameOver.style.display = 'grid';
+        }
+
+        if (o.position.z > 12) {
+          scene.remove(o);
+          obstacles.splice(i, 1);
+          score += 10;
+        }
+      }
+
+      stars.position.z += dt * (8 + speed * 0.1);
+      if (stars.position.z > 60) stars.position.z = 0;
+
+      score += dt * 6;
+      scoreEl.innerHTML = `Счёт: <b>${Math.floor(score)}</b><br/>Скорость: <b>${(speed / 24).toFixed(2)}x</b>`;
+    }
+
+    let last = performance.now();
+    function frame(now) {
+      const dt = Math.min(0.033, (now - last) / 1000);
+      last = now;
+      update(dt);
+
+      camera.position.x += (ship.position.x * 0.35 - camera.position.x) * Math.min(1, dt * 4.2);
+      camera.lookAt(ship.position.x * 0.2, 1.5, 0);
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+
+    window.addEventListener('keydown', (e) => keys.add(e.key));
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    window.addEventListener('touchstart', (e) => { touchX = e.touches[0].clientX; }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      if (touchX == null) return;
+      const x = e.touches[0].clientX;
+      if (x - touchX > 18) targetLane = Math.min(lanes.length - 1, targetLane + 1);
+      if (x - touchX < -18) targetLane = Math.max(0, targetLane - 1);
+      touchX = x;
+    }, { passive: true });
+    window.addEventListener('touchend', () => { touchX = null; }, { passive: true });
+
+    restartBtn.addEventListener('click', restart);
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>

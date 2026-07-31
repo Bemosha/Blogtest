@@ -1,0 +1,16 @@
+[
+  {
+    "host": "1.2.3.4",
+    "port": 1080,
+    "username": "client001",
+    "password": "pass001",
+    "protocol": "socks5"
+  },
+  {
+    "host": "1.2.3.5",
+    "port": 1080,
+    "username": "client002",
+    "password": "pass002",
+    "protocol": "socks5"
+  }
+]

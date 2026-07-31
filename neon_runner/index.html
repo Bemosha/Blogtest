@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Zombie Road FPS</title>
+  <style>
+    html,body{margin:0;height:100%;overflow:hidden;background:#070b14;color:#fff;font-family:Arial,sans-serif}
+    canvas{display:block;width:100vw;height:100vh}
+    #hud{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.7);pointer-events:none}
+    #panel{position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.55)}
+    .card{width:min(560px,92vw);background:rgba(12,20,34,.95);border:1px solid #3a5ea1;border-radius:14px;padding:18px;text-align:center}
+    button{border:0;border-radius:999px;padding:11px 18px;background:#2ea0ff;color:#fff;font-weight:700;cursor:pointer}
+    #touch{position:fixed;inset:0;pointer-events:none}
+    #controls{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:12px;pointer-events:auto}
+    .t{width:64px;height:64px;border-radius:12px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.16);color:#fff;font-size:26px;font-weight:800}
+  </style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+  <div>Фраги: <span id="score">0</span></div>
+  <div>Темп: <span id="speed">1.0</span>x</div>
+  <div>HP: <span id="hp">3</span></div>
+</div>
+
+<div id="panel"><div class="card" id="card">
+  <h1>🧟 Zombie Road FPS</h1>
+  <p>Игра от первого лица с зомби.</p>
+  <p>Уклоняйся от зомби и собирай аптечки на трассе.</p>
+  <p>Управление: ◀ ▶ (или A/D, ←/→).</p>
+  <button id="startBtn">Старт</button>
+</div></div>
+
+<div id="touch">
+  <div id="controls">
+    <button class="t" data-k="left">◀</button>
+    <button class="t" data-k="right">▶</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const c = document.getElementById('game'), ctx = c.getContext('2d');
+  const scoreEl = document.getElementById('score'), speedEl = document.getElementById('speed'), hpEl = document.getElementById('hp');
+  const panel = document.getElementById('panel'), card = document.getElementById('card'), startBtn = document.getElementById('startBtn');
+  let W=0,H=0; const rs=()=>{W=c.width=innerWidth;H=c.height=innerHeight}; rs(); addEventListener('resize',rs);
+
+  const keys = {left:false,right:false};
+  addEventListener('keydown',e=>{ if(e.code==='ArrowLeft'||e.code==='KeyA') keys.left=true; if(e.code==='ArrowRight'||e.code==='KeyD') keys.right=true; });
+  addEventListener('keyup',e=>{ if(e.code==='ArrowLeft'||e.code==='KeyA') keys.left=false; if(e.code==='ArrowRight'||e.code==='KeyD') keys.right=false; });
+  for (const b of document.querySelectorAll('.t[data-k]')) {
+    const k=b.dataset.k; const on=e=>{e.preventDefault();keys[k]=true}, off=e=>{e.preventDefault();keys[k]=false};
+    b.addEventListener('touchstart',on,{passive:false}); b.addEventListener('touchend',off,{passive:false}); b.addEventListener('touchcancel',off,{passive:false});
+    b.addEventListener('mousedown',on); b.addEventListener('mouseup',off); b.addEventListener('mouseleave',off);
+  }
+
+  const r=(a,b)=>a+Math.random()*(b-a);
+  const g={run:false,score:0,hp:3,speed:1,spawn:0,lane:0,obs:[],energy:[],fx:[],roadShift:0};
+
+  function reset(){ Object.assign(g,{run:true,score:0,hp:3,speed:1,spawn:0,lane:0,obs:[],energy:[],fx:[],roadShift:0}); sync(); }
+  function sync(){ scoreEl.textContent=Math.floor(g.score); speedEl.textContent=g.speed.toFixed(1); hpEl.textContent=g.hp; }
+
+  function spawnObstacle(){ g.obs.push({x:r(-3.2,3.2),z:r(30,36),w:r(.7,1.2),h:r(.8,1.35)}); }
+  function spawnEnergy(){ g.energy.push({x:r(-3,3),z:r(30,36)}); }
+
+  function proj(x,z){
+    const horizon=H*0.28, near=H*0.92, p=(near-horizon)/Math.max(0.001,z);
+    return {x:W*0.5+(x-g.lane)*p*1.5, y:horizon+(1-1/(z+0.2))*(near-horizon), s:p};
+  }
+  function boom(x,z,col){ for(let i=0;i<10;i++) g.fx.push({x,z,vx:r(-.25,.25),vz:r(-.06,.06),life:r(14,26),col}); }
+
+  function update(){
+    if(!g.run) return;
+    g.score += 0.6 + g.speed*0.35;
+    g.speed = Math.min(3.2, 1 + g.score/800);
+    if(keys.left) g.lane -= 0.11;
+    if(keys.right) g.lane += 0.11;
+    g.lane = Math.max(-3.6,Math.min(3.6,g.lane));
+    g.roadShift += (g.lane - g.roadShift) * 0.16;
+
+    g.spawn--; if(g.spawn<=0){ Math.random()<0.76?spawnObstacle():spawnEnergy(); g.spawn = Math.max(14, 30-Math.floor(g.speed*6)); }
+
+    for(let i=g.obs.length-1;i>=0;i--){
+      const o=g.obs[i]; o.z -= 0.25 + g.speed*0.85;
+      if(o.z<2.1 && Math.abs(o.x-g.lane)<(o.w*0.8+0.65)){ g.hp--; boom(o.x,1.8,'#ff7f7f'); g.obs.splice(i,1); sync(); if(g.hp<=0){ gameOver(); return; } continue; }
+      if(o.z<0.7) g.obs.splice(i,1);
+    }
+    for(let i=g.energy.length-1;i>=0;i--){
+      const e=g.energy[i]; e.z -= 0.25 + g.speed*0.85;
+      if(e.z<2.1 && Math.abs(e.x-g.lane)<0.8){ g.hp=Math.min(3,g.hp+1); g.score += 8; boom(e.x,1.8,'#7fffd4'); g.energy.splice(i,1); }
+      else if(e.z<0.7) g.energy.splice(i,1);
+    }
+    for(let i=g.fx.length-1;i>=0;i--){ const p=g.fx[i]; p.x+=p.vx; p.z+=p.vz; p.life--; if(p.life<=0) g.fx.splice(i,1); }
+    sync();
+  }
+
+  function drawRoad(){
+    const h=H*0.28;
+    const sky=ctx.createLinearGradient(0,0,0,h); sky.addColorStop(0,'#2b2e3f'); sky.addColorStop(1,'#5c6078'); ctx.fillStyle=sky; ctx.fillRect(0,0,W,h);
+    const bg=ctx.createLinearGradient(0,h,0,H); bg.addColorStop(0,'#1f2321'); bg.addColorStop(1,'#101412'); ctx.fillStyle=bg; ctx.fillRect(0,h,W,H-h);
+
+    // first-person road trapezoid with camera sway
+    const topCenter = W*0.5 - g.roadShift*26;
+    const botCenter = W*0.5 - g.roadShift*78;
+    ctx.fillStyle='#1e2233';
+    ctx.beginPath();
+    ctx.moveTo(topCenter-W*0.12,h);
+    ctx.lineTo(topCenter+W*0.12,h);
+    ctx.lineTo(botCenter+W*0.45,H);
+    ctx.lineTo(botCenter-W*0.45,H);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle='rgba(100,255,120,.45)';
+    for(let z=1;z<40;z+=2){ const a=proj(0,z), b=proj(0,z+1); ctx.lineWidth=Math.max(1,a.s*0.12); ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
+  }
+
+  function drawObj(){
+    for(const o of [...g.obs].sort((a,b)=>b.z-a.z)){
+      const p=proj(o.x,o.z), w=Math.max(8,p.s*18*o.w), h=Math.max(8,p.s*20*o.h);
+      // zombie body
+      ctx.fillStyle='#7bcf6a';
+      ctx.fillRect(p.x-w/2,p.y-h,w,h);
+      ctx.fillStyle='#243022';
+      ctx.fillRect(p.x-w*0.2,p.y-h*0.78,w*0.4,h*0.2);
+      ctx.fillStyle='#dfffd7';
+      ctx.fillRect(p.x-w*0.12,p.y-h*0.7,w*0.08,h*0.06);
+      ctx.fillRect(p.x+w*0.04,p.y-h*0.7,w*0.08,h*0.06);
+    }
+    for(const e of [...g.energy].sort((a,b)=>b.z-a.z)){
+      const p=proj(e.x,e.z), rr=Math.max(5,p.s*8);
+      // medkit
+      ctx.fillStyle='#d7fff0';
+      ctx.beginPath(); ctx.arc(p.x,p.y,rr,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#1fbe6c';
+      ctx.fillRect(p.x-rr*0.5,p.y-rr*0.12,rr,rr*0.24);
+      ctx.fillRect(p.x-rr*0.12,p.y-rr*0.5,rr*0.24,rr);
+    }
+    for(const p of g.fx){ const s=proj(p.x,Math.max(.8,p.z)); ctx.fillStyle=p.col; ctx.globalAlpha=Math.max(0,p.life/26); ctx.fillRect(s.x,s.y,3,3); ctx.globalAlpha=1; }
+  }
+
+  function drawCockpit(){
+    // player sees front of bike (first person)
+    const cx = W/2 - g.roadShift*20;
+    ctx.fillStyle='#5d6a78';
+    ctx.beginPath();
+    ctx.moveTo(cx-96,H);
+    ctx.lineTo(cx+96,H);
+    ctx.lineTo(cx+52,H*0.78);
+    ctx.lineTo(cx-52,H*0.78);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle='#d4dde9'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.moveTo(cx-38,H*0.8); ctx.lineTo(cx+38,H*0.8); ctx.stroke();
+
+    // crosshair
+    ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.moveTo(W/2-10,H*0.57); ctx.lineTo(W/2+10,H*0.57);
+    ctx.moveTo(W/2,H*0.57-10); ctx.lineTo(W/2,H*0.57+10);
+    ctx.stroke();
+  }
+
+  function draw(){ drawRoad(); drawObj(); drawCockpit(); }
+
+  function gameOver(){
+    g.run=false;
+    card.innerHTML=`<h1>☠️ Тебя окружили</h1><p>Фраги: <b>${Math.floor(g.score)}</b></p><p>Это версия от первого лица с зомби.</p><button id="restartBtn">Снова</button>`;
+    panel.style.display='grid';
+    document.getElementById('restartBtn').onclick=start;
+  }
+
+  function start(){ panel.style.display='none'; reset(); }
+  startBtn.onclick=start;
+  (function loop(){ update(); draw(); requestAnimationFrame(loop); })();
+})();
+</script>
+</body>
+</html>

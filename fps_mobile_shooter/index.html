@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>FPS Mobile Arena</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1018; font-family: Arial, sans-serif; }
+    canvas { width: 100vw; height: 100vh; display: block; }
+    #hud {
+      position: fixed; top: 10px; left: 10px; right: 10px;
+      display: flex; justify-content: space-between; color: #fff; font-weight: 700;
+      text-shadow: 0 2px 5px rgba(0,0,0,.8); pointer-events: none; z-index: 5;
+    }
+    #panel {
+      position: fixed; inset: 0; display: grid; place-items: center;
+      background: rgba(0,0,0,.6); color: #fff; z-index: 6;
+    }
+    .card {
+      width: min(560px, 92vw); background: rgba(15,24,36,.95);
+      border: 1px solid #3e5f8d; border-radius: 14px; padding: 18px; text-align: center;
+    }
+    button {
+      border: 0; border-radius: 999px; padding: 10px 18px;
+      background: #1f8dff; color: #fff; font-weight: 700; cursor: pointer;
+      margin-top: 10px;
+    }
+    #touch {
+      position: fixed; inset: 0; z-index: 7; pointer-events: none;
+    }
+    #leftPad, #rightPad {
+      position: absolute; bottom: 14px; display: grid; gap: 8px; pointer-events: auto;
+    }
+    #leftPad { left: 12px; grid-template-columns: 56px 56px 56px; grid-template-rows: 56px 56px; }
+    #rightPad { right: 12px; grid-template-columns: 64px 64px; grid-template-rows: 64px 64px; }
+    .tbtn {
+      border: 1px solid rgba(255,255,255,.32); border-radius: 12px;
+      background: rgba(255,255,255,.18); color: #fff; font-weight: 800; font-size: 18px;
+    }
+    .empty { visibility: hidden; }
+    @media (min-width: 1024px) {
+      #touch { opacity: .85; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div>HP: <span id="hp">100</span></div>
+    <div>Счёт: <span id="score">0</span></div>
+    <div>Враги: <span id="enemies">0</span></div>
+  </div>
+
+  <div id="panel">
+    <div class="card" id="card">
+      <h1>🔫 FPS Mobile Arena</h1>
+      <p>Шутер от первого лица в браузере.</p>
+      <p>Телефон: кнопки снизу. ПК: <b>WASD</b>, <b>←/→</b> поворот, <b>Space</b> выстрел.</p>
+      <button id="startBtn">Старт</button>
+    </div>
+  </div>
+
+  <div id="touch">
+    <div id="leftPad">
+      <button class="tbtn empty"></button>
+      <button class="tbtn" data-key="moveUp">▲</button>
+      <button class="tbtn empty"></button>
+      <button class="tbtn" data-key="turnLeft">⟲</button>
+      <button class="tbtn" data-key="moveDown">▼</button>
+      <button class="tbtn" data-key="turnRight">⟳</button>
+    </div>
+    <div id="rightPad">
+      <button class="tbtn" data-key="strafeLeft">◀</button>
+      <button class="tbtn" data-key="strafeRight">▶</button>
+      <button class="tbtn" data-key="fire">FIRE</button>
+      <button class="tbtn" data-key="fire">FIRE</button>
+    </div>
+  </div>
+
+  <script>
+  (() => {
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const hpEl = document.getElementById('hp');
+    const scoreEl = document.getElementById('score');
+    const enemiesEl = document.getElementById('enemies');
+    const panel = document.getElementById('panel');
+    const card = document.getElementById('card');
+    const startBtn = document.getElementById('startBtn');
+
+    let W = 0, H = 0;
+    const resize = () => { W = canvas.width = innerWidth; H = canvas.height = innerHeight; };
+    resize();
+    addEventListener('resize', resize);
+
+    const keys = {
+      moveUp: false, moveDown: false, strafeLeft: false, strafeRight: false,
+      turnLeft: false, turnRight: false, fire: false
+    };
+
+    addEventListener('keydown', (e) => {
+      if (e.code === 'KeyW') keys.moveUp = true;
+      if (e.code === 'KeyS') keys.moveDown = true;
+      if (e.code === 'KeyA') keys.strafeLeft = true;
+      if (e.code === 'KeyD') keys.strafeRight = true;
+      if (e.code === 'ArrowLeft') keys.turnLeft = true;
+      if (e.code === 'ArrowRight') keys.turnRight = true;
+      if (e.code === 'Space') keys.fire = true;
+    });
+    addEventListener('keyup', (e) => {
+      if (e.code === 'KeyW') keys.moveUp = false;
+      if (e.code === 'KeyS') keys.moveDown = false;
+      if (e.code === 'KeyA') keys.strafeLeft = false;
+      if (e.code === 'KeyD') keys.strafeRight = false;
+      if (e.code === 'ArrowLeft') keys.turnLeft = false;
+      if (e.code === 'ArrowRight') keys.turnRight = false;
+      if (e.code === 'Space') keys.fire = false;
+    });
+
+    for (const btn of document.querySelectorAll('.tbtn[data-key]')) {
+      const k = btn.dataset.key;
+      const on = (e) => { e.preventDefault(); keys[k] = true; };
+      const off = (e) => { e.preventDefault(); keys[k] = false; };
+      btn.addEventListener('touchstart', on, { passive: false });
+      btn.addEventListener('touchend', off, { passive: false });
+      btn.addEventListener('touchcancel', off, { passive: false });
+      btn.addEventListener('mousedown', on);
+      btn.addEventListener('mouseup', off);
+      btn.addEventListener('mouseleave', off);
+    }
+
+    const rand = (a, b) => a + Math.random() * (b - a);
+    const TAU = Math.PI * 2;
+
+    const game = {
+      running: false,
+      hp: 100,
+      score: 0,
+      fireCooldown: 0,
+      worldSize: 36,
+      player: { x: 18, y: 18, a: 0 },
+      enemies: [],
+      shots: [],
+      hitFlash: 0,
+      spawnTimer: 0,
+    };
+
+    function reset() {
+      game.running = true;
+      game.hp = 100;
+      game.score = 0;
+      game.fireCooldown = 0;
+      game.player.x = 18;
+      game.player.y = 18;
+      game.player.a = 0;
+      game.enemies = [];
+      game.shots = [];
+      game.hitFlash = 0;
+      game.spawnTimer = 0;
+      for (let i = 0; i < 8; i++) spawnEnemy();
+      syncUI();
+    }
+
+    function syncUI() {
+      hpEl.textContent = Math.max(0, Math.floor(game.hp));
+      scoreEl.textContent = game.score;
+      enemiesEl.textContent = game.enemies.length;
+    }
+
+    function spawnEnemy() {
+      const p = game.player;
+      let ex = rand(2, game.worldSize - 2);
+      let ey = rand(2, game.worldSize - 2);
+      for (let i = 0; i < 20 && Math.hypot(ex - p.x, ey - p.y) < 7; i++) {
+        ex = rand(2, game.worldSize - 2);
+        ey = rand(2, game.worldSize - 2);
+      }
+      game.enemies.push({ x: ex, y: ey, hp: 36, speed: rand(0.01, 0.02), attackCd: rand(30, 90) });
+    }
+
+    function normalize(a) {
+      while (a > Math.PI) a -= TAU;
+      while (a < -Math.PI) a += TAU;
+      return a;
+    }
+
+    function shoot() {
+      const p = game.player;
+      game.shots.push({ x: p.x, y: p.y, a: p.a, life: 24 });
+
+      // hitscan on central view cone
+      let target = null;
+      let bestDist = 1e9;
+      for (const e of game.enemies) {
+        const dx = e.x - p.x;
+        const dy = e.y - p.y;
+        const dist = Math.hypot(dx, dy);
+        const ang = normalize(Math.atan2(dy, dx) - p.a);
+        if (Math.abs(ang) < 0.12 && dist < bestDist) {
+          bestDist = dist;
+          target = e;
+        }
+      }
+      if (target) {
+        target.hp -= 18;
+        if (target.hp <= 0) {
+          game.enemies.splice(game.enemies.indexOf(target), 1);
+          game.score += 10;
+        }
+      }
+    }
+
+    function update() {
+      if (!game.running) return;
+      const p = game.player;
+
+      if (keys.turnLeft) p.a -= 0.04;
+      if (keys.turnRight) p.a += 0.04;
+
+      const fw = (keys.moveUp ? 1 : 0) - (keys.moveDown ? 1 : 0);
+      const st = (keys.strafeRight ? 1 : 0) - (keys.strafeLeft ? 1 : 0);
+      const mx = Math.cos(p.a) * fw * 0.08 + Math.cos(p.a + Math.PI / 2) * st * 0.06;
+      const my = Math.sin(p.a) * fw * 0.08 + Math.sin(p.a + Math.PI / 2) * st * 0.06;
+
+      p.x = Math.max(1, Math.min(game.worldSize - 1, p.x + mx));
+      p.y = Math.max(1, Math.min(game.worldSize - 1, p.y + my));
+
+      if (game.fireCooldown > 0) game.fireCooldown--;
+      if (keys.fire && game.fireCooldown <= 0) {
+        shoot();
+        game.fireCooldown = 8;
+      }
+
+      game.spawnTimer--;
+      if (game.spawnTimer <= 0 && game.enemies.length < 18) {
+        spawnEnemy();
+        game.spawnTimer = 80;
+      }
+
+      // enemies movement/attacks
+      for (const e of game.enemies) {
+        const dx = p.x - e.x;
+        const dy = p.y - e.y;
+        const d = Math.hypot(dx, dy) || 0.0001;
+        e.x += (dx / d) * e.speed;
+        e.y += (dy / d) * e.speed;
+
+        e.attackCd--;
+        if (d < 1.25 && e.attackCd <= 0) {
+          game.hp -= rand(4, 9);
+          game.hitFlash = 8;
+          e.attackCd = rand(25, 70);
+        }
+      }
+
+      for (let i = game.enemies.length - 1; i >= 0; i--) {
+        const e = game.enemies[i];
+        if (e.hp <= 0) game.enemies.splice(i, 1);
+      }
+
+      for (let i = game.shots.length - 1; i >= 0; i--) {
+        const s = game.shots[i];
+        s.life--;
+        if (s.life <= 0) game.shots.splice(i, 1);
+      }
+
+      if (game.hitFlash > 0) game.hitFlash--;
+
+      if (game.hp <= 0) {
+        game.running = false;
+        card.innerHTML = `
+          <h1>💀 Поражение</h1>
+          <p>Счёт: <b>${game.score}</b></p>
+          <p>Враги тебя зажали. Попробуй ещё раз.</p>
+          <button id="restartBtn">Играть снова</button>
+        `;
+        panel.style.display = 'grid';
+        document.getElementById('restartBtn').addEventListener('click', startGame);
+      }
+
+      syncUI();
+    }
+
+    function drawWorld() {
+      const sky = ctx.createLinearGradient(0, 0, 0, H * 0.45);
+      sky.addColorStop(0, '#5fb4ff');
+      sky.addColorStop(1, '#d8f1ff');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, W, H * 0.45);
+
+      const floor = ctx.createLinearGradient(0, H * 0.45, 0, H);
+      floor.addColorStop(0, '#4e5f3f');
+      floor.addColorStop(1, '#2f3a2b');
+      ctx.fillStyle = floor;
+      ctx.fillRect(0, H * 0.45, W, H * 0.55);
+
+      // pseudo corridors / depth lines
+      const center = W / 2;
+      for (let i = 1; i <= 18; i++) {
+        const k = i / 18;
+        const y = H * 0.45 + k * H * 0.52;
+        const span = (1 - k) * W * 0.45;
+        ctx.strokeStyle = `rgba(255,255,255,${0.13 - k * 0.08})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(center - span, y);
+        ctx.lineTo(center + span, y);
+        ctx.stroke();
+      }
+    }
+
+    function drawEnemies() {
+      const p = game.player;
+      const fov = Math.PI * 0.75;
+
+      const visible = [];
+      for (const e of game.enemies) {
+        const dx = e.x - p.x;
+        const dy = e.y - p.y;
+        const dist = Math.hypot(dx, dy);
+        const ang = normalize(Math.atan2(dy, dx) - p.a);
+        if (Math.abs(ang) < fov / 2 && dist < 24) {
+          visible.push({ e, dist, ang });
+        }
+      }
+
+      visible.sort((a, b) => b.dist - a.dist);
+
+      for (const v of visible) {
+        const sx = (v.ang / (fov / 2)) * (W * 0.45) + W / 2;
+        const scale = Math.max(0.2, 1.8 / v.dist);
+        const h = H * 0.42 * scale;
+        const w = h * 0.42;
+        const y = H * 0.62 - h;
+
+        ctx.fillStyle = '#d24f4f';
+        ctx.fillRect(sx - w / 2, y, w, h);
+        ctx.fillStyle = '#231818';
+        ctx.fillRect(sx - w * 0.2, y + h * 0.2, w * 0.4, h * 0.22);
+
+        // hp bar
+        ctx.fillStyle = 'rgba(0,0,0,.5)';
+        ctx.fillRect(sx - w / 2, y - 8, w, 5);
+        ctx.fillStyle = '#6cff6c';
+        ctx.fillRect(sx - w / 2, y - 8, w * Math.max(0, v.e.hp / 36), 5);
+      }
+    }
+
+    function drawWeapon() {
+      ctx.fillStyle = '#1f242d';
+      ctx.beginPath();
+      ctx.moveTo(W * 0.36, H);
+      ctx.lineTo(W * 0.66, H);
+      ctx.lineTo(W * 0.58, H * 0.78);
+      ctx.lineTo(W * 0.42, H * 0.78);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#3f4b5a';
+      ctx.fillRect(W * 0.475, H * 0.7, W * 0.05, H * 0.12);
+
+      for (const s of game.shots) {
+        const alpha = Math.max(0, s.life / 24);
+        ctx.fillStyle = `rgba(255,230,120,${alpha})`;
+        ctx.fillRect(W * 0.498, H * 0.6, 4, 12);
+      }
+
+      // crosshair
+      ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      ctx.lineWidth = 2;
+      const cx = W / 2, cy = H * 0.55;
+      ctx.beginPath();
+      ctx.moveTo(cx - 11, cy); ctx.lineTo(cx + 11, cy);
+      ctx.moveTo(cx, cy - 11); ctx.lineTo(cx, cy + 11);
+      ctx.stroke();
+    }
+
+    function drawDamageFlash() {
+      if (game.hitFlash <= 0) return;
+      const a = game.hitFlash / 8;
+      ctx.fillStyle = `rgba(255,0,0,${a * 0.22})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    function draw() {
+      drawWorld();
+      drawEnemies();
+      drawWeapon();
+      drawDamageFlash();
+    }
+
+    function startGame() {
+      panel.style.display = 'none';
+      reset();
+    }
+
+    startBtn.addEventListener('click', startGame);
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+    loop();
+  })();
+  </script>
+</body>
+</html>
