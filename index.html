@@ -2671,6 +2671,10 @@ function isSecondTankModelSelected(){
   return selectedTankModelId==='m2';
 }
 
+function isT34Selected(){
+  return selectedTankModelId==='m10';
+}
+
 function getEffectivePlayerWeaponClass(){
   if(isSecondTankModelSelected()&&model2MachinegunMode)return 'machinegun';
   return playerClass||'normal';
@@ -3213,7 +3217,9 @@ function update(){
     const dirZ=-Math.cos(shootAngle);
     const spd=cls.bulletSpeed;
     const rocketBonus=(TANK_CLASSES[activeClass]||TANK_CLASSES.normal).bonusDmg||0;
-    const pDmg=((cls.dmg||1)+UPGRADES.bulletPower.val*0.3+rocketBonus);
+    let pDmg=((cls.dmg||1)+UPGRADES.bulletPower.val*0.3+rocketBonus);
+    // Т-34: уничтожает врага с одного попадания
+    if(isT34Selected())pDmg=9999;
     const pPen=((cls.pen||1)+UPGRADES.bulletPower.val*0.18);
     const pLife=cls.bulletLife+UPGRADES.bulletRange.val*25;
     const weaponTag=roofMachinegunShot?'roof_mg':'';
@@ -3526,7 +3532,8 @@ function update(){
           }else{
             // Умеренный интервал между попаданиями, но без чрезмерной «неубиваемости».
             if(playerHitCooldown<=0){
-              const dmg=Math.max(0.28,hit.damage*1.05);
+              // Т-34: игрок погибает только примерно за 5 попаданий
+              const dmg=isT34Selected()?Math.max(0.2,player.maxHp/5):Math.max(0.28,hit.damage*1.05);
               player.hp-=dmg;
               playerHitCooldown=6;
               showCombatEvent('ТЕБЯ ПРОБИЛИ','#ff6b6b');
