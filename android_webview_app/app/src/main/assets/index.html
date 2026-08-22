@@ -16,9 +16,9 @@
     canvas{display:block;width:100vw;height:100dvh}
     #hud{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
     #nameLabels{position:fixed;inset:0;pointer-events:none;z-index:16}
-    .tankLabel{position:absolute;transform:translate(-50%,-50%);padding:2px 7px;border-radius:8px;
-      background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.28);font-size:12px;font-weight:bold;
-      color:#fff;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,0.9)}
+    .tankLabel{position:absolute;transform:translate(-50%,-50%);padding:0;border-radius:0;
+      background:transparent;border:none;font-size:11px;font-weight:700;
+      color:#fff;white-space:nowrap;text-shadow:0 1px 1px rgba(0,0,0,0.95)}
     #fsBtn{position:absolute;top:calc(12px + var(--safe-top));right:calc(180px + var(--safe-right));background:rgba(0,0,0,0.5);color:#fff;padding:4px 10px;
       border-radius:8px;font-size:18px;pointer-events:auto;cursor:pointer;z-index:30;border:1px solid rgba(255,255,255,0.3)}
     #fsBtn:active{background:rgba(255,255,255,0.2)}
@@ -158,6 +158,31 @@
     .vipActions{display:flex;gap:8px;flex-wrap:wrap}
     .vipActions .btn{padding:10px 14px;font-size:14px;border-radius:12px}
     #vipCloseBtn{background:linear-gradient(135deg,#555,#333)}
+
+    /* Layout editor ("Реставрация") */
+    #layoutEditor{position:fixed;inset:0;display:none;z-index:60;pointer-events:none}
+    #layoutEditorTitle{position:absolute;left:50%;top:calc(12px + var(--safe-top));transform:translateX(-50%);
+      background:rgba(0,0,0,0.75);color:#fff;border:1px solid rgba(255,255,255,0.35);border-radius:12px;
+      padding:8px 12px;font-size:13px;font-weight:700;letter-spacing:.2px;pointer-events:none;text-align:center}
+    #layoutEditorHint{position:absolute;left:50%;bottom:calc(12px + var(--safe-bottom));transform:translateX(-50%);
+      background:rgba(0,0,0,0.75);color:#cbd5e1;border:1px solid rgba(255,255,255,0.22);border-radius:12px;
+      padding:7px 11px;font-size:12px;pointer-events:none;max-width:min(92vw,520px);text-align:center}
+    #layoutEditorClose{position:absolute;right:calc(12px + var(--safe-right));top:calc(12px + var(--safe-top));
+      width:44px;height:44px;border-radius:12px;border:1px solid rgba(255,255,255,0.42);
+      background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;font-size:24px;font-weight:800;
+      line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;pointer-events:auto;
+      box-shadow:0 8px 20px rgba(0,0,0,0.35)}
+    #layoutEditorClose:active{transform:scale(0.96)}
+    body.layout-editor-open .layout-draggable{
+      outline:2px dashed rgba(125,211,252,0.95);
+      outline-offset:2px;
+      cursor:grab;
+      pointer-events:auto!important;
+      touch-action:none;
+      user-select:none;
+      -webkit-user-select:none;
+      z-index:58!important;
+    }
 
     /* Tank model hangar */
     #tankModelScreen{position:fixed;inset:0;display:none;flex-direction:column;z-index:43;
@@ -306,6 +331,7 @@
   <div id="moneyPanel" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:420px">
     <button class="btn" id="tutorialBtn" style="padding:10px 16px;font-size:14px;background:linear-gradient(135deg,#0ea5e9,#0369a1)">Обучение</button>
     <button class="btn" id="tankModelBtn" style="padding:10px 16px;font-size:14px;background:linear-gradient(135deg,#16a34a,#166534)">ВЫБРАТЬ МОДЕЛЬ ТАНКА</button>
+    <button class="btn" id="layoutEditBtn" style="padding:10px 16px;font-size:14px;background:linear-gradient(135deg,#0f766e,#115e59)">РЕСТАВРАЦИЯ</button>
     <button class="btn vip" id="vipBtn" style="padding:10px 16px;font-size:14px">VIP</button>
     <button class="btn" id="donateBtn" style="padding:10px 16px;font-size:14px;background:linear-gradient(135deg,#f59e0b,#b45309)">Поддержать проект • 199₽</button>
   </div>
@@ -360,6 +386,12 @@
       <button class="btn" id="vipCloseBtn">Закрыть</button>
     </div>
   </div>
+</div>
+
+<div id="layoutEditor" aria-hidden="true">
+  <div id="layoutEditorTitle">РЕСТАВРАЦИЯ • Перетаскивай кнопки как удобно</div>
+  <button id="layoutEditorClose" aria-label="Закрыть">✕</button>
+  <div id="layoutEditorHint">Потяни любую подсвеченную кнопку в нужное место. Нажми ✕, чтобы вернуться в главное меню. Позиции сохраняются.</div>
 </div>
 
 <script>
@@ -465,6 +497,12 @@ const DEFAULT_RENDER_SCALE=IS_MOBILE?0.82:1.40;
 const RENDER_SCALE_STEPS=IS_MOBILE
   ?[0.56,0.70,0.82,0.94,1.08,1.22,1.34]
   :[0.70,0.86,1.00,1.14,1.28,1.40,1.56,1.72,1.92];
+const CONTROL_LAYOUT_KEY='tank3dControlLayoutV1';
+const LAYOUT_BUTTON_IDS=[
+  'fsBtn','settingsBtn','vipQuickBtn','onlineBtn',
+  'score','hp','ammoDisplay','fireBtn','pauseBtnMobile',
+  'joystickArea','minimap'
+];
 const SAVED_RENDER_SCALE=parseFloat(localStorage.getItem('tank3dRenderScale')||'');
 const PERF={
   renderScale:(Number.isFinite(SAVED_RENDER_SCALE)&&SAVED_RENDER_SCALE>0)?SAVED_RENDER_SCALE:DEFAULT_RENDER_SCALE,
@@ -476,6 +514,62 @@ const PERF={
   maxHitFx:IS_MOBILE?80:180,
   maxExplosions:IS_MOBILE?18:40
 };
+let layoutEditorOpen=false;
+let layoutEditorBound=false;
+let controlLayout=loadControlLayout();
+
+function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+
+function loadControlLayout(){
+  try{
+    const raw=localStorage.getItem(CONTROL_LAYOUT_KEY);
+    if(!raw)return {};
+    const parsed=JSON.parse(raw);
+    return(parsed&&typeof parsed==='object')?parsed:{};
+  }catch(e){
+    return {};
+  }
+}
+
+function saveControlLayout(){
+  try{localStorage.setItem(CONTROL_LAYOUT_KEY,JSON.stringify(controlLayout||{}));}catch(e){}
+}
+
+function setElementLayoutPx(el,x,y){
+  if(!el)return;
+  const maxX=Math.max(0,window.innerWidth-el.offsetWidth);
+  const maxY=Math.max(0,window.innerHeight-el.offsetHeight);
+  const cx=clamp(Math.round(x),0,maxX);
+  const cy=clamp(Math.round(y),0,maxY);
+  el.style.position='absolute';
+  el.style.left=cx+'px';
+  el.style.top=cy+'px';
+  el.style.right='auto';
+  el.style.bottom='auto';
+  el.style.transform='none';
+}
+
+function saveElementLayoutById(id,el){
+  if(!id||!el)return;
+  const rect=el.getBoundingClientRect();
+  const xPct=clamp(rect.left/Math.max(1,window.innerWidth),0,1);
+  const yPct=clamp(rect.top/Math.max(1,window.innerHeight),0,1);
+  controlLayout[id]={xPct,yPct};
+  saveControlLayout();
+}
+
+function applyControlLayout(){
+  for(const id of LAYOUT_BUTTON_IDS){
+    const cfg=controlLayout&&controlLayout[id];
+    if(!cfg)continue;
+    const el=document.getElementById(id);
+    if(!el)continue;
+    if(!Number.isFinite(cfg.xPct)||!Number.isFinite(cfg.yPct))continue;
+    const x=cfg.xPct*Math.max(1,window.innerWidth);
+    const y=cfg.yPct*Math.max(1,window.innerHeight);
+    setElementLayoutPx(el,x,y);
+  }
+}
 
 // Cinematic visual tuning ("Красивый режим")
 const VISUAL={
@@ -537,6 +631,7 @@ function resize(){
   canvas.style.width='100vw';
   canvas.style.height='100dvh';
   gl.viewport(0,0,canvas.width,canvas.height);
+  applyControlLayout();
 }
 window.addEventListener('resize',resize);
 window.addEventListener('orientationchange',()=>setTimeout(resize,80));
@@ -4095,7 +4190,7 @@ function render(){
   const vp=mat4Mul(proj,view);
   gl.uniform3fv(uEyePos,[eyeX,eyeY,eyeZ]);
 
-  // ===== 2D labels (nicknames above tanks) =====
+  // ===== 2D labels (nicknames drawn on tanks) =====
   const labelRoot=document.getElementById('nameLabels');
   if(!render._labelPool)render._labelPool=[];
   const labelPool=render._labelPool;
@@ -4138,15 +4233,15 @@ function render(){
   }
   let labelCount=0;
   if(gameRunning&&player&&player.hp>0){
-    labelCount=addLabel(labelCount,playerNickname||onlineNickname||'Игрок',player.x,sampleGroundHeight(player.x,player.z)+(player.flyHeight||0)+4.25,player.z,'#9fe8ff');
+    labelCount=addLabel(labelCount,playerNickname||onlineNickname||'Игрок',player.x,sampleGroundHeight(player.x,player.z)+(player.flyHeight||0)+1.55,player.z,'#9fe8ff');
     for(const a of allies){
-      labelCount=addLabel(labelCount,a.nickname||'Союзник',a.x,sampleGroundHeight(a.x,a.z)+3.95,a.z,'#8fff8f');
+      labelCount=addLabel(labelCount,a.nickname||'Союзник',a.x,sampleGroundHeight(a.x,a.z)+1.45,a.z,'#8fff8f');
     }
     for(const e of enemies){
-      labelCount=addLabel(labelCount,e.nickname||'Враг',e.x,sampleGroundHeight(e.x,e.z)+3.95,e.z,'#ff9a9a');
+      labelCount=addLabel(labelCount,e.nickname||'Враг',e.x,sampleGroundHeight(e.x,e.z)+1.45,e.z,'#ff9a9a');
     }
     for(const p of onlinePeers){
-      labelCount=addLabel(labelCount,p.name||'Игрок',p.x,sampleGroundHeight(p.x,p.z)+3.95,p.z,'#8ec5ff');
+      labelCount=addLabel(labelCount,p.name||'Игрок',p.x,sampleGroundHeight(p.x,p.z)+1.45,p.z,'#8ec5ff');
       if((Number(p.banMarkUntilMs)||0)>Date.now()){
         labelCount=addLabel(labelCount,'БАН',p.x,sampleGroundHeight(p.x,p.z)+5.1,p.z,'#ff4b4b');
       }
@@ -5453,6 +5548,8 @@ function startGame(isTutorial){
   if(tutorialMode)showTutorialStep();
   else closeTutorialUi();
 
+  applyControlLayout();
+
   // Онлайн отключен
 }
 
@@ -5619,6 +5716,112 @@ function openVipModal(){
   modal.setAttribute('aria-hidden','false');
 }
 
+function openLayoutEditor(){
+  const editor=document.getElementById('layoutEditor');
+  if(!editor)return;
+  layoutEditorOpen=true;
+  document.body.classList.add('layout-editor-open');
+  editor.style.display='block';
+  editor.setAttribute('aria-hidden','false');
+
+  const startScreen=document.getElementById('startScreen');
+  if(startScreen)startScreen.style.display='none';
+
+  for(const id of LAYOUT_BUTTON_IDS){
+    const el=document.getElementById(id);
+    if(!el)continue;
+    const rect=el.getBoundingClientRect();
+    setElementLayoutPx(el,rect.left,rect.top);
+    el.classList.add('layout-draggable');
+    if(id==='pauseBtnMobile'&&getComputedStyle(el).display==='none'){
+      el.dataset.layoutTempDisplay='flex';
+      el.style.display='flex';
+    }
+  }
+}
+
+function closeLayoutEditor(){
+  const editor=document.getElementById('layoutEditor');
+  layoutEditorOpen=false;
+  document.body.classList.remove('layout-editor-open');
+  if(editor){
+    editor.style.display='none';
+    editor.setAttribute('aria-hidden','true');
+  }
+  for(const id of LAYOUT_BUTTON_IDS){
+    const el=document.getElementById(id);
+    if(!el)continue;
+    el.classList.remove('layout-draggable');
+    if(el.dataset.layoutTempDisplay){
+      el.style.display='none';
+      delete el.dataset.layoutTempDisplay;
+    }
+  }
+  saveControlLayout();
+  const startScreen=document.getElementById('startScreen');
+  if(startScreen)startScreen.style.display='flex';
+}
+
+function startLayoutDrag(ev,el,id){
+  if(!layoutEditorOpen||!el)return;
+  ev.preventDefault();
+  ev.stopPropagation();
+
+  const rect=el.getBoundingClientRect();
+  setElementLayoutPx(el,rect.left,rect.top);
+  const startX=ev.clientX;
+  const startY=ev.clientY;
+  const baseLeft=parseFloat(el.style.left)||rect.left;
+  const baseTop=parseFloat(el.style.top)||rect.top;
+
+  const onMove=(e)=>{
+    if(!layoutEditorOpen)return;
+    e.preventDefault();
+    const nx=baseLeft+(e.clientX-startX);
+    const ny=baseTop+(e.clientY-startY);
+    setElementLayoutPx(el,nx,ny);
+  };
+  const onUp=()=>{
+    window.removeEventListener('pointermove',onMove);
+    window.removeEventListener('pointerup',onUp);
+    saveElementLayoutById(id,el);
+  };
+  window.addEventListener('pointermove',onMove,{passive:false});
+  window.addEventListener('pointerup',onUp);
+}
+
+function bindLayoutEditor(){
+  if(layoutEditorBound)return;
+  layoutEditorBound=true;
+
+  const openBtn=document.getElementById('layoutEditBtn');
+  const closeBtn=document.getElementById('layoutEditorClose');
+
+  if(openBtn){
+    openBtn.addEventListener('click',(e)=>{e.preventDefault();openLayoutEditor();});
+    openBtn.addEventListener('touchend',(e)=>{e.preventDefault();openLayoutEditor();},{passive:false});
+  }
+  if(closeBtn){
+    closeBtn.addEventListener('click',(e)=>{e.preventDefault();closeLayoutEditor();});
+    closeBtn.addEventListener('touchend',(e)=>{e.preventDefault();closeLayoutEditor();},{passive:false});
+  }
+
+  for(const id of LAYOUT_BUTTON_IDS){
+    const el=document.getElementById(id);
+    if(!el)continue;
+    el.addEventListener('pointerdown',(e)=>startLayoutDrag(e,el,id));
+  }
+
+  document.addEventListener('click',(e)=>{
+    if(!layoutEditorOpen)return;
+    const t=e.target;
+    if(t&&t.closest&&t.closest('.layout-draggable')){
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  },true);
+}
+
 function closeVipModal(){
   const modal=document.getElementById('vipModal');
   if(!modal)return;
@@ -5738,12 +5941,14 @@ initAdminFromParams();
 bindMoneyButtons();
 bindVipButtons();
 bindAdminButtons();
+bindLayoutEditor();
 syncAdminUI();
 
 window.enableAdminMode=function(){setAdminMode(true,true);};
 window.disableAdminMode=function(){setAdminMode(false,true);};
 
 syncFireButtonVisibility();
+applyControlLayout();
 updateTankModelKillsUi();
 
 requestAnimationFrame(loop);
