@@ -159,6 +159,20 @@
     .vipActions .btn{padding:10px 14px;font-size:14px;border-radius:12px}
     #vipCloseBtn{background:linear-gradient(135deg,#555,#333)}
 
+    #aiDiffModal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:44;
+      background:rgba(0,0,0,0.6);pointer-events:auto}
+    #aiDiffPanel{width:min(460px,92vw);background:rgba(10,10,12,0.96);border:1px solid rgba(255,255,255,0.28);
+      border-radius:14px;padding:14px;color:#fff;box-shadow:0 12px 36px rgba(0,0,0,0.45)}
+    .aiDiffTitle{font-size:20px;font-weight:bold;margin-bottom:6px;color:#bfdbfe}
+    .aiDiffSub{font-size:13px;color:#c9ceda;margin-bottom:12px;line-height:1.45}
+    .aiDiffRow{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px}
+    .aiDiffArrow{width:42px;height:38px;border-radius:10px;border:1px solid rgba(255,255,255,0.35);
+      background:linear-gradient(135deg,#2d7ef7,#1357b8);color:#fff;cursor:pointer;font-size:18px;font-weight:bold;line-height:1}
+    .aiDiffArrow:active{transform:scale(0.96)}
+    #aiDiffValue{min-width:160px;text-align:center;font-size:18px;font-weight:800;letter-spacing:.4px;color:#dbeafe}
+    .aiDiffDesc{min-height:38px;font-size:12px;color:#a5b4fc;text-align:center;margin-bottom:12px}
+    #aiDiffCloseBtn{padding:10px 14px;font-size:14px;border-radius:12px;background:linear-gradient(135deg,#555,#333)}
+
     /* Layout editor ("Реставрация") */
     #layoutEditor{position:fixed;inset:0;display:none;z-index:60;pointer-events:none}
     #layoutEditorTitle{position:absolute;left:50%;top:calc(12px + var(--safe-top));transform:translateX(-50%);
@@ -330,6 +344,7 @@
   <button class="btn" id="startBtn">В бой!</button>
   <div id="moneyPanel" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:420px">
     <button class="btn" id="tutorialBtn" style="padding:10px 16px;font-size:14px;background:linear-gradient(135deg,#0ea5e9,#0369a1)">Обучение</button>
+    <button class="btn" id="aiLevelBtn" style="padding:10px 16px;font-size:14px;background:linear-gradient(135deg,#3b82f6,#1d4ed8)">УРОВЕНЬ ИИ</button>
     <button class="btn" id="tankModelBtn" style="padding:10px 16px;font-size:14px;background:linear-gradient(135deg,#16a34a,#166534)">ВЫБРАТЬ МОДЕЛЬ ТАНКА</button>
     <button class="btn" id="layoutEditBtn" style="padding:10px 16px;font-size:14px;background:linear-gradient(135deg,#0f766e,#115e59)">РЕСТАВРАЦИЯ</button>
     <button class="btn vip" id="vipBtn" style="padding:10px 16px;font-size:14px">VIP</button>
@@ -384,6 +399,22 @@
       <button class="btn" id="vipTripleBtn">Купить «Тройная пушка»</button>
       <button class="btn" id="vipOneShotBtn">Купить «Убийство с 1 раза»</button>
       <button class="btn" id="vipCloseBtn">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<div id="aiDiffModal" aria-hidden="true">
+  <div id="aiDiffPanel">
+    <div class="aiDiffTitle">Уровень ИИ</div>
+    <div class="aiDiffSub">Выбери сложность стрелками: левая уменьшает, правая повышает.</div>
+    <div class="aiDiffRow">
+      <button class="aiDiffArrow" id="aiDiffLeftBtn" aria-label="Сложность ниже">◀</button>
+      <div id="aiDiffValue">КЛУБНЫЙ</div>
+      <button class="aiDiffArrow" id="aiDiffRightBtn" aria-label="Сложность выше">▶</button>
+    </div>
+    <div id="aiDiffDesc" class="aiDiffDesc">Сбалансированный бой.</div>
+    <div style="display:flex;justify-content:center">
+      <button class="btn" id="aiDiffCloseBtn">Готово</button>
     </div>
   </div>
 </div>
@@ -498,6 +529,7 @@ const RENDER_SCALE_STEPS=IS_MOBILE
   ?[0.56,0.70,0.82,0.94,1.08,1.22,1.34]
   :[0.70,0.86,1.00,1.14,1.28,1.40,1.56,1.72,1.92];
 const CONTROL_LAYOUT_KEY='tank3dControlLayoutV1';
+const AI_DIFFICULTY_KEY='tank3dAiDifficultyV1';
 const LAYOUT_BUTTON_IDS=[
   'fsBtn','settingsBtn','vipQuickBtn','onlineBtn',
   'score','hp','ammoDisplay','fireBtn','pauseBtnMobile',
@@ -516,7 +548,165 @@ const PERF={
 };
 let layoutEditorOpen=false;
 let layoutEditorBound=false;
+let aiDifficultyBound=false;
 let controlLayout=loadControlLayout();
+
+const AI_DIFFICULTIES=[
+  {
+    id:'open',
+    name:'ОТКРЫТЫЙ',
+    desc:'Очень лёгко: враги медленные и неточные, союзники помогают сильнее.',
+    enemyMoveMul:0.64,
+    enemyTurnMul:0.72,
+    enemyAimTolMul:1.85,
+    enemyShootDelayMul:1.8,
+    enemyDamageMul:0.55,
+    allyMoveMul:1.1,
+    allyTurnMul:1.1,
+    allyAimTolMul:1.28,
+    allyShootDelayMul:0.82,
+    allyDamageMul:1.28
+  },
+  {
+    id:'club',
+    name:'КЛУБНЫЙ',
+    desc:'Сбалансированный бой.',
+    enemyMoveMul:1,
+    enemyTurnMul:1,
+    enemyAimTolMul:1,
+    enemyShootDelayMul:1,
+    enemyDamageMul:1,
+    allyMoveMul:1,
+    allyTurnMul:1,
+    allyAimTolMul:1,
+    allyShootDelayMul:1,
+    allyDamageMul:1
+  },
+  {
+    id:'elite',
+    name:'ЭЛИТА',
+    desc:'Сложно: враги быстрее, точнее и агрессивнее.',
+    enemyMoveMul:1.16,
+    enemyTurnMul:1.12,
+    enemyAimTolMul:0.82,
+    enemyShootDelayMul:0.86,
+    enemyDamageMul:1.14,
+    allyMoveMul:0.95,
+    allyTurnMul:0.95,
+    allyAimTolMul:0.94,
+    allyShootDelayMul:1.08,
+    allyDamageMul:0.94
+  },
+  {
+    id:'pro',
+    name:'ПРО',
+    desc:'Очень сложно: враги максимально опасны.',
+    enemyMoveMul:1.28,
+    enemyTurnMul:1.22,
+    enemyAimTolMul:0.66,
+    enemyShootDelayMul:0.72,
+    enemyDamageMul:1.28,
+    allyMoveMul:0.9,
+    allyTurnMul:0.9,
+    allyAimTolMul:0.84,
+    allyShootDelayMul:1.16,
+    allyDamageMul:0.88
+  }
+];
+let aiDifficultyIndex=loadAiDifficultyIndex();
+
+function loadAiDifficultyIndex(){
+  try{
+    const saved=(localStorage.getItem(AI_DIFFICULTY_KEY)||'club').toLowerCase();
+    const idx=AI_DIFFICULTIES.findIndex(x=>x.id===saved);
+    return idx>=0?idx:1;
+  }catch(e){
+    return 1;
+  }
+}
+
+function getAiDifficulty(){
+  return AI_DIFFICULTIES[Math.max(0,Math.min(AI_DIFFICULTIES.length-1,aiDifficultyIndex))];
+}
+
+function saveAiDifficulty(){
+  try{localStorage.setItem(AI_DIFFICULTY_KEY,getAiDifficulty().id);}catch(e){}
+}
+
+function renderAiDifficultyUi(){
+  const d=getAiDifficulty();
+  const valueEl=document.getElementById('aiDiffValue');
+  const descEl=document.getElementById('aiDiffDesc');
+  const btn=document.getElementById('aiLevelBtn');
+  if(valueEl)valueEl.textContent=d.name;
+  if(descEl)descEl.textContent=d.desc;
+  if(btn)btn.textContent='УРОВЕНЬ ИИ: '+d.name;
+}
+
+function openAiDiffModal(){
+  const modal=document.getElementById('aiDiffModal');
+  if(!modal)return;
+  renderAiDifficultyUi();
+  modal.style.display='flex';
+  modal.setAttribute('aria-hidden','false');
+}
+
+function closeAiDiffModal(){
+  const modal=document.getElementById('aiDiffModal');
+  if(!modal)return;
+  modal.style.display='none';
+  modal.setAttribute('aria-hidden','true');
+}
+
+function changeAiDifficulty(delta){
+  const len=AI_DIFFICULTIES.length||1;
+  aiDifficultyIndex=(aiDifficultyIndex+delta+len)%len;
+  saveAiDifficulty();
+  renderAiDifficultyUi();
+  if(gameRunning)showCombatEvent('УРОВЕНЬ ИИ: '+getAiDifficulty().name,'#93c5fd');
+}
+
+function bindAiDifficulty(){
+  if(aiDifficultyBound)return;
+  aiDifficultyBound=true;
+
+  const btn=document.getElementById('aiLevelBtn');
+  const modal=document.getElementById('aiDiffModal');
+  const panel=document.getElementById('aiDiffPanel');
+  const leftBtn=document.getElementById('aiDiffLeftBtn');
+  const rightBtn=document.getElementById('aiDiffRightBtn');
+  const closeBtn=document.getElementById('aiDiffCloseBtn');
+
+  if(btn){
+    btn.addEventListener('click',(e)=>{e.preventDefault();openAiDiffModal();});
+    btn.addEventListener('touchend',(e)=>{e.preventDefault();openAiDiffModal();},{passive:false});
+  }
+  if(leftBtn){
+    leftBtn.addEventListener('click',(e)=>{e.preventDefault();changeAiDifficulty(-1);});
+    leftBtn.addEventListener('touchend',(e)=>{e.preventDefault();changeAiDifficulty(-1);},{passive:false});
+  }
+  if(rightBtn){
+    rightBtn.addEventListener('click',(e)=>{e.preventDefault();changeAiDifficulty(1);});
+    rightBtn.addEventListener('touchend',(e)=>{e.preventDefault();changeAiDifficulty(1);},{passive:false});
+  }
+  if(closeBtn){
+    closeBtn.addEventListener('click',(e)=>{e.preventDefault();closeAiDiffModal();});
+    closeBtn.addEventListener('touchend',(e)=>{e.preventDefault();closeAiDiffModal();},{passive:false});
+  }
+  if(modal&&panel){
+    modal.addEventListener('click',(e)=>{
+      if(e.target===modal)closeAiDiffModal();
+    });
+  }
+  document.addEventListener('keydown',(e)=>{
+    if(!modal||modal.style.display!=='flex')return;
+    if(e.key==='Escape'){closeAiDiffModal();return;}
+    if(e.key==='ArrowLeft'){e.preventDefault();changeAiDifficulty(-1);}
+    if(e.key==='ArrowRight'){e.preventDefault();changeAiDifficulty(1);}
+  });
+
+  renderAiDifficultyUi();
+}
 
 function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
 
@@ -3451,6 +3641,13 @@ function update(){
   function updateTankAI(tank,targetList,includePlayer,ownerTag){
     const target=findNearest(tank,targetList,includePlayer);
     if(!target)return;
+    const aiDiff=getAiDifficulty();
+    const isEnemy=ownerTag==='enemy';
+    const moveMul=isEnemy?aiDiff.enemyMoveMul:aiDiff.allyMoveMul;
+    const turnMul=isEnemy?aiDiff.enemyTurnMul:aiDiff.allyTurnMul;
+    const aimTolMul=isEnemy?aiDiff.enemyAimTolMul:aiDiff.allyAimTolMul;
+    const shootDelayMul=isEnemy?aiDiff.enemyShootDelayMul:aiDiff.allyShootDelayMul;
+    const damageMul=isEnemy?aiDiff.enemyDamageMul:aiDiff.allyDamageMul;
     const tx=target.x,tz=target.z;
 
     // Move toward target with turn-rate limit (корпус не "щёлкает" мгновенно)
@@ -3458,15 +3655,15 @@ function update(){
     let hda=desiredHull-tank.angle;
     while(hda>Math.PI)hda-=Math.PI*2;
     while(hda<-Math.PI)hda+=Math.PI*2;
-    const maxHullTurn=0.022;
+    const maxHullTurn=0.022*turnMul;
     if(hda>maxHullTurn)hda=maxHullTurn;
     if(hda<-maxHullTurn)hda=-maxHullTurn;
     tank.angle+=hda;
 
     // При сильном доворачивании скорость ниже — как у гусеничного танка
     const turnSlow=Math.max(0.42,1-Math.abs(hda)*16.0);
-    tank.x+=Math.sin(tank.angle)*tank.speed*dt*turnSlow*AI_SPEED_MULT;
-    tank.z+=Math.cos(tank.angle)*tank.speed*dt*turnSlow*AI_SPEED_MULT;
+    tank.x+=Math.sin(tank.angle)*tank.speed*dt*turnSlow*AI_SPEED_MULT*moveMul;
+    tank.z+=Math.cos(tank.angle)*tank.speed*dt*turnSlow*AI_SPEED_MULT*moveMul;
     tank.x=Math.max(-WORLD,Math.min(WORLD,tank.x));
     tank.z=Math.max(-WORLD,Math.min(WORLD,tank.z));
     pushTrackDust(tank,0.45+tank.speed*0.08);
@@ -3476,7 +3673,7 @@ function update(){
     let da=targetTurret-tank.turretAngle;
     while(da>Math.PI)da-=Math.PI*2;
     while(da<-Math.PI)da+=Math.PI*2;
-    const maxTraverse=0.05; // rad/frame
+    const maxTraverse=0.05*turnMul; // rad/frame
     if(da>maxTraverse)da=maxTraverse;
     if(da<-maxTraverse)da=-maxTraverse;
     tank.turretAngle+=da;
@@ -3492,17 +3689,17 @@ function update(){
     let aimErr=targetTurret-tank.turretAngle;
     while(aimErr>Math.PI)aimErr-=Math.PI*2;
     while(aimErr<-Math.PI)aimErr+=Math.PI*2;
-    const aimed=Math.abs(aimErr)<0.24;
+    const aimed=Math.abs(aimErr)<(0.24*aimTolMul);
     if(tank.shootTimer<=0&&(!tank.reloadTimer)&&((tank.ammo||0)>0)&&aimed){
       // Союзники стреляют реже, чем враги.
-      const fireDelayMul=(ownerTag==='ally')?1.6:1.0;
+      const fireDelayMul=((ownerTag==='ally')?1.6:1.0)*shootDelayMul;
       tank.shootTimer=cls.fireRate*fireDelayMul+Math.random()*30;
       const dirX=-Math.sin(tank.turretAngle);
       const dirZ=-Math.cos(tank.turretAngle);
       const bx=tank.x+dirX*4.5;
       const bz=tank.z+dirZ*4.5;
       const spd=cls.bulletSpeed;
-      const dmg=tank.bulletDmg||1;
+      const dmg=(tank.bulletDmg||1)*damageMul;
       const pen=tank.bulletPen||cls.pen||1;
       if(cls.barrels===2){
         const px=Math.cos(tank.turretAngle)*0.8;
@@ -5942,6 +6139,7 @@ bindMoneyButtons();
 bindVipButtons();
 bindAdminButtons();
 bindLayoutEditor();
+bindAiDifficulty();
 syncAdminUI();
 
 window.enableAdminMode=function(){setAdminMode(true,true);};
