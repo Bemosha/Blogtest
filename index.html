@@ -187,6 +187,13 @@
       line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;pointer-events:auto;
       box-shadow:0 8px 20px rgba(0,0,0,0.35)}
     #layoutEditorClose:active{transform:scale(0.96)}
+    #layoutScalePanel{position:absolute;left:50%;top:calc(72px + var(--safe-top));transform:translateX(-50%);
+      min-width:min(340px,92vw);max-width:min(420px,94vw);background:rgba(8,10,14,0.9);border:1px solid rgba(255,255,255,0.3);
+      border-radius:12px;padding:10px 12px;pointer-events:auto;display:none;box-shadow:0 10px 28px rgba(0,0,0,0.45)}
+    #layoutScaleTitle{font-size:13px;font-weight:800;letter-spacing:.4px;color:#e2e8f0;margin-bottom:8px;text-align:center}
+    #layoutScaleRow{display:flex;align-items:center;gap:8px}
+    #layoutScaleSlider{flex:1;accent-color:#38bdf8;cursor:pointer}
+    #layoutScaleValue{min-width:52px;text-align:right;font-size:12px;color:#bfdbfe;font-weight:700}
     body.layout-editor-open .layout-draggable{
       outline:2px dashed rgba(125,211,252,0.95);
       outline-offset:2px;
@@ -422,6 +429,13 @@
 <div id="layoutEditor" aria-hidden="true">
   <div id="layoutEditorTitle">РЕСТАВРАЦИЯ • Перетаскивай кнопки как удобно</div>
   <button id="layoutEditorClose" aria-label="Закрыть">✕</button>
+  <div id="layoutScalePanel" aria-hidden="true">
+    <div id="layoutScaleTitle">МАШТАБ</div>
+    <div id="layoutScaleRow">
+      <input id="layoutScaleSlider" type="range" min="60" max="180" step="1" value="100" />
+      <div id="layoutScaleValue">100%</div>
+    </div>
+  </div>
   <div id="layoutEditorHint">Потяни любую подсвеченную кнопку в нужное место. Нажми ✕, чтобы вернуться в главное меню. Позиции сохраняются.</div>
 </div>
 
@@ -535,6 +549,8 @@ const LAYOUT_BUTTON_IDS=[
   'score','hp','ammoDisplay','fireBtn','pauseBtnMobile',
   'joystickArea','minimap'
 ];
+const LAYOUT_SCALE_MIN=0.6;
+const LAYOUT_SCALE_MAX=1.8;
 const SAVED_RENDER_SCALE=parseFloat(localStorage.getItem('tank3dRenderScale')||'');
 const PERF={
   renderScale:(Number.isFinite(SAVED_RENDER_SCALE)&&SAVED_RENDER_SCALE>0)?SAVED_RENDER_SCALE:DEFAULT_RENDER_SCALE,
@@ -548,6 +564,8 @@ const PERF={
 };
 let layoutEditorOpen=false;
 let layoutEditorBound=false;
+let layoutScaleSelectedId='';
+let layoutScaleSelectedEl=null;
 let aiDifficultyBound=false;
 let controlLayout=loadControlLayout();
 
@@ -727,8 +745,11 @@ function saveControlLayout(){
 
 function setElementLayoutPx(el,x,y){
   if(!el)return;
-  const maxX=Math.max(0,window.innerWidth-el.offsetWidth);
-  const maxY=Math.max(0,window.innerHeight-el.offsetHeight);
+  const scale=Math.max(0.1,parseFloat(el.dataset.layoutScale||'1')||1);
+  const w=el.offsetWidth*scale;
+  const h=el.offsetHeight*scale;
+  const maxX=Math.max(0,window.innerWidth-w);
+  const maxY=Math.max(0,window.innerHeight-h);
   const cx=clamp(Math.round(x),0,maxX);
   const cy=clamp(Math.round(y),0,maxY);
   el.style.position='absolute';
@@ -736,7 +757,25 @@ function setElementLayoutPx(el,x,y){
   el.style.top=cy+'px';
   el.style.right='auto';
   el.style.bottom='auto';
-  el.style.transform='none';
+  applyElementScale(el,getLayoutScaleById(el.id));
+}
+
+function clampLayoutScale(v){
+  return clamp(Number(v)||1,LAYOUT_SCALE_MIN,LAYOUT_SCALE_MAX);
+}
+
+function getLayoutScaleById(id){
+  const cfg=controlLayout&&controlLayout[id];
+  if(!cfg||!Number.isFinite(cfg.scale))return 1;
+  return clampLayoutScale(cfg.scale);
+}
+
+function applyElementScale(el,scale){
+  if(!el)return;
+  const s=clampLayoutScale(scale);
+  el.dataset.layoutScale=String(s);
+  el.style.transformOrigin='top left';
+  el.style.transform='scale('+s.toFixed(3)+')';
 }
 
 function saveElementLayoutById(id,el){
@@ -744,16 +783,30 @@ function saveElementLayoutById(id,el){
   const rect=el.getBoundingClientRect();
   const xPct=clamp(rect.left/Math.max(1,window.innerWidth),0,1);
   const yPct=clamp(rect.top/Math.max(1,window.innerHeight),0,1);
-  controlLayout[id]={xPct,yPct};
+  const prev=controlLayout[id]||{};
+  controlLayout[id]={
+    ...prev,
+    xPct,
+    yPct,
+    scale:getLayoutScaleById(id)
+  };
+  saveControlLayout();
+}
+
+function saveElementScaleById(id,scale){
+  if(!id)return;
+  const prev=controlLayout[id]||{};
+  controlLayout[id]={...prev,scale:clampLayoutScale(scale)};
   saveControlLayout();
 }
 
 function applyControlLayout(){
   for(const id of LAYOUT_BUTTON_IDS){
-    const cfg=controlLayout&&controlLayout[id];
-    if(!cfg)continue;
     const el=document.getElementById(id);
     if(!el)continue;
+    applyElementScale(el,getLayoutScaleById(id));
+    const cfg=controlLayout&&controlLayout[id];
+    if(!cfg)continue;
     if(!Number.isFinite(cfg.xPct)||!Number.isFinite(cfg.yPct))continue;
     const x=cfg.xPct*Math.max(1,window.innerWidth);
     const y=cfg.yPct*Math.max(1,window.innerHeight);
@@ -5917,6 +5970,8 @@ function openLayoutEditor(){
   const editor=document.getElementById('layoutEditor');
   if(!editor)return;
   layoutEditorOpen=true;
+  layoutScaleSelectedId='';
+  layoutScaleSelectedEl=null;
   document.body.classList.add('layout-editor-open');
   editor.style.display='block';
   editor.setAttribute('aria-hidden','false');
@@ -5927,6 +5982,7 @@ function openLayoutEditor(){
   for(const id of LAYOUT_BUTTON_IDS){
     const el=document.getElementById(id);
     if(!el)continue;
+    applyElementScale(el,getLayoutScaleById(id));
     const rect=el.getBoundingClientRect();
     setElementLayoutPx(el,rect.left,rect.top);
     el.classList.add('layout-draggable');
@@ -5937,14 +5993,44 @@ function openLayoutEditor(){
   }
 }
 
+function hideLayoutScalePanel(){
+  const panel=document.getElementById('layoutScalePanel');
+  if(!panel)return;
+  panel.style.display='none';
+  panel.setAttribute('aria-hidden','true');
+}
+
+function updateLayoutScalePanelValue(scale){
+  const slider=document.getElementById('layoutScaleSlider');
+  const val=document.getElementById('layoutScaleValue');
+  const s=clampLayoutScale(scale);
+  if(slider)slider.value=String(Math.round(s*100));
+  if(val)val.textContent=Math.round(s*100)+'%';
+}
+
+function selectLayoutElement(id,el){
+  if(!layoutEditorOpen||!id||!el)return;
+  layoutScaleSelectedId=id;
+  layoutScaleSelectedEl=el;
+  const panel=document.getElementById('layoutScalePanel');
+  if(panel){
+    panel.style.display='block';
+    panel.setAttribute('aria-hidden','false');
+  }
+  updateLayoutScalePanelValue(getLayoutScaleById(id));
+}
+
 function closeLayoutEditor(){
   const editor=document.getElementById('layoutEditor');
   layoutEditorOpen=false;
+  layoutScaleSelectedId='';
+  layoutScaleSelectedEl=null;
   document.body.classList.remove('layout-editor-open');
   if(editor){
     editor.style.display='none';
     editor.setAttribute('aria-hidden','true');
   }
+  hideLayoutScalePanel();
   for(const id of LAYOUT_BUTTON_IDS){
     const el=document.getElementById(id);
     if(!el)continue;
@@ -5963,6 +6049,7 @@ function startLayoutDrag(ev,el,id){
   if(!layoutEditorOpen||!el)return;
   ev.preventDefault();
   ev.stopPropagation();
+  selectLayoutElement(id,el);
 
   const rect=el.getBoundingClientRect();
   setElementLayoutPx(el,rect.left,rect.top);
@@ -6001,6 +6088,23 @@ function bindLayoutEditor(){
   if(closeBtn){
     closeBtn.addEventListener('click',(e)=>{e.preventDefault();closeLayoutEditor();});
     closeBtn.addEventListener('touchend',(e)=>{e.preventDefault();closeLayoutEditor();},{passive:false});
+  }
+
+  const scaleSlider=document.getElementById('layoutScaleSlider');
+  if(scaleSlider){
+    const onScale=()=>{
+      const pct=parseFloat(scaleSlider.value||'100');
+      const scale=clampLayoutScale(pct/100);
+      updateLayoutScalePanelValue(scale);
+      if(!layoutEditorOpen||!layoutScaleSelectedEl||!layoutScaleSelectedId)return;
+      applyElementScale(layoutScaleSelectedEl,scale);
+      saveElementScaleById(layoutScaleSelectedId,scale);
+      const rect=layoutScaleSelectedEl.getBoundingClientRect();
+      setElementLayoutPx(layoutScaleSelectedEl,rect.left,rect.top);
+      saveElementLayoutById(layoutScaleSelectedId,layoutScaleSelectedEl);
+    };
+    scaleSlider.addEventListener('input',onScale);
+    scaleSlider.addEventListener('change',onScale);
   }
 
   for(const id of LAYOUT_BUTTON_IDS){
