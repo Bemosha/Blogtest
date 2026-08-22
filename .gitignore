@@ -5,6 +5,9 @@ __pycache__/
 # Local env / secrets
 .env
 */.env
+android_webview_app/key.properties
+android_webview_app/*.jks
+android_webview_app/*.keystore
 
 # Runtime state/logs
 *.log

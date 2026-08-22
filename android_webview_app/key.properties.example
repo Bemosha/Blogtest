@@ -1,0 +1,14 @@
+## Скопируй этот файл в key.properties и заполни своими значениями.
+## ВАЖНО: key.properties не должен попадать в git.
+
+# Путь до keystore файла (можно абсолютный или относительный от android_webview_app)
+storeFile=release-keystore.jks
+
+# Пароль keystore
+storePassword=CHANGE_ME
+
+# Alias ключа
+keyAlias=tank3d_release
+
+# Пароль ключа
+keyPassword=CHANGE_ME
